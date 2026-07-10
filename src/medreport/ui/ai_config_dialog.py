@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLineEdit,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +35,9 @@ class AIConfigDialog(QDialog):
         self.base_url_edit = QLineEdit()
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        fields = [self.provider_combo, self.model_edit, self.base_url_edit, self.api_key_edit]
+        for field in fields:
+            field.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._build_layout()
         self._load_config(config)
@@ -59,7 +63,10 @@ class AIConfigDialog(QDialog):
         )
 
     def _build_layout(self) -> None:
+        self.resize(520, 180)
+        self.setMinimumWidth(420)
         form = QFormLayout()
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         form.addRow("Provider", self.provider_combo)
         form.addRow("Model", self.model_edit)
         form.addRow("Base URL", self.base_url_edit)
