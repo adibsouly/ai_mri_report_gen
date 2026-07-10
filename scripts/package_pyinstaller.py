@@ -15,14 +15,13 @@ def main() -> int:
         "AI MRI Analyzer",
         "--windowed",
         "--noconfirm",
+        "--clean",
         "--osx-bundle-identifier",
         "com.adibsouly.aimrianalyzer",
         "--icon",
         icon_path,
         "--add-data",
         "assets:assets",
-        "--collect-all",
-        "PySide6",
         "apps/desktop/main.py",
     ]
     return subprocess.call(command)
