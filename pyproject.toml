@@ -1,0 +1,73 @@
+[project]
+name = "medreport"
+version = "0.1.0"
+description = "AI-powered desktop medical imaging workstation built with PySide6."
+readme = "README.md"
+authors = [
+    { name = "MedReport Contributors" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "openai>=2.0",
+    "pillow>=11.0",
+    "pydicom>=3.0",
+    "pyside6>=6.8",
+    "simpleitk>=2.4",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.8",
+]
+packaging = [
+    "pyinstaller>=6.11",
+]
+
+[project.scripts]
+medreport = "medreport.app.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.21,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["N802", "N803", "N806", "N813"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+plugins = []
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["openai.*", "pydicom.*", "SimpleITK.*", "PySide6.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--cov=medreport --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/medreport"]
+
+[tool.coverage.report]
+fail_under = 0
+show_missing = true
