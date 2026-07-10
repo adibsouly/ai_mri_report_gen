@@ -103,6 +103,9 @@ class MainWindow(QMainWindow):
         ai_config_action = QAction("AI Config...", self)
         ai_config_action.triggered.connect(self._open_ai_config)
 
+        about_me_action = QAction("About Me", self)
+        about_me_action.triggered.connect(self._show_about_me)
+
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(open_action)
         file_menu.addSeparator()
@@ -114,6 +117,9 @@ class MainWindow(QMainWindow):
 
         ai_menu = self.menuBar().addMenu("AI Config")
         ai_menu.addAction(ai_config_action)
+
+        help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction(about_me_action)
 
         toolbar = QToolBar("Workflow")
         toolbar.setMovable(False)
@@ -342,6 +348,23 @@ class MainWindow(QMainWindow):
         self._settings.save_ai_provider_config(config)
         self._ai_report_service.update_config(config)
         self.statusBar().showMessage(f"AI provider set to {config.label}: {config.model}")
+
+    def _show_about_me(self) -> None:
+        QMessageBox.about(
+            self,
+            "About AI MRI Analyzer",
+            (
+                "<b>AI MRI Analyzer</b><br><br>"
+                "Created by Adib Souly, the main developer of this app.<br><br>"
+                "I built AI MRI Analyzer to help patients explore their MRI studies, "
+                "ask better questions, and understand AI-assisted analysis in a more "
+                "accessible way.<br><br>"
+                "<b>Important:</b> This app is not medical-grade software and is not "
+                "intended for diagnosis, treatment decisions, emergency use, or replacing "
+                "a licensed radiologist or physician. All findings must be reviewed by a "
+                "qualified medical professional."
+            ),
+        )
 
     def _populate_metadata(self, series: Series) -> None:
         rows = series.images[0].rows if series.images else None
