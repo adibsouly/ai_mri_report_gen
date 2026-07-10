@@ -1,6 +1,4 @@
-def main() -> None:
-    print("Hello from medreport!")
-"""MedReport medical imaging workstation."""
+"""AI MRI Analyzer medical imaging workstation."""
 
 __all__ = ["__version__"]
 

@@ -16,15 +16,17 @@ from medreport.settings.service import SettingsService
 from medreport.ui.main_window import MainWindow
 from medreport.ui.theme import DARK_THEME
 
+APP_DISPLAY_NAME = "AI MRI Analyzer"
+
 
 def app_data_dir() -> Path:
     """Return the platform-appropriate application data directory."""
 
-    return Path.home() / "Library" / "Application Support" / "MedReport"
+    return Path.home() / "Library" / "Application Support" / APP_DISPLAY_NAME
 
 
 def main() -> int:
-    """Start the MedReport desktop application."""
+    """Start the AI MRI Analyzer desktop application."""
 
     data_dir = app_data_dir()
     configure_logging(data_dir / "logs")
@@ -32,8 +34,9 @@ def main() -> int:
     database.initialize()
 
     application = QApplication(sys.argv)
-    application.setApplicationName("MedReport")
-    application.setOrganizationName("MedReport")
+    application.setApplicationName(APP_DISPLAY_NAME)
+    application.setApplicationDisplayName(APP_DISPLAY_NAME)
+    application.setOrganizationName("AI MRI Analyzer")
     application.setStyleSheet(DARK_THEME)
     settings = SettingsService()
 

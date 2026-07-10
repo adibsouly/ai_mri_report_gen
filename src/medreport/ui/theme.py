@@ -1,4 +1,4 @@
-"""Qt stylesheet for the MedReport dark theme."""
+"""Qt stylesheet for the AI MRI Analyzer dark theme."""
 
 DARK_THEME = """
 QMainWindow, QWidget {

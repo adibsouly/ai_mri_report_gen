@@ -1,4 +1,4 @@
-"""Build a standalone MedReport app with PyInstaller."""
+"""Build a standalone AI MRI Analyzer app with PyInstaller."""
 
 from __future__ import annotations
 
@@ -12,9 +12,11 @@ def main() -> int:
     command = [
         "pyinstaller",
         "--name",
-        "MedReport",
+        "AI MRI Analyzer",
         "--windowed",
         "--noconfirm",
+        "--osx-bundle-identifier",
+        "com.adibsouly.aimrianalyzer",
         "--icon",
         icon_path,
         "--add-data",

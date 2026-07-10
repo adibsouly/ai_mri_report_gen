@@ -1,4 +1,4 @@
-"""Main Qt window for the MedReport workstation."""
+"""Main Qt window for AI MRI Analyzer."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def _build_window(self) -> None:
-        self.setWindowTitle("MedReport")
+        self.setWindowTitle("AI MRI Analyzer")
         icon_path = _asset_path("icons/medreport_icon.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -260,14 +260,14 @@ class MainWindow(QMainWindow):
         if not self._studies:
             QMessageBox.information(
                 self,
-                "MedReport",
+                "AI MRI Analyzer",
                 "Import a DICOM MRI folder before generating a report.",
             )
             return
         if not self._ai_report_service.is_configured():
             QMessageBox.information(
                 self,
-                "MedReport",
+                "AI MRI Analyzer",
                 self._ai_report_service.configuration_hint(),
             )
             return
@@ -275,7 +275,7 @@ class MainWindow(QMainWindow):
         if self._mri_series_count() == 0:
             QMessageBox.information(
                 self,
-                "MedReport",
+                "AI MRI Analyzer",
                 "No MRI series were found in the imported DICOM studies.",
             )
             return
@@ -312,7 +312,11 @@ class MainWindow(QMainWindow):
     def _save_report_as(self) -> None:
         report = self.report_editor.toPlainText().strip()
         if not report:
-            QMessageBox.information(self, "MedReport", "No report is available to save yet.")
+            QMessageBox.information(
+                self,
+                "AI MRI Analyzer",
+                "No report is available to save yet.",
+            )
             return
 
         suggested = self._last_report_path or self._report_dir / "ai-report.md"
@@ -368,7 +372,7 @@ class MainWindow(QMainWindow):
 
     def _show_error(self, message: str) -> None:
         self.statusBar().showMessage("Error")
-        QMessageBox.critical(self, "MedReport", message)
+        QMessageBox.critical(self, "AI MRI Analyzer", message)
 
     def _start_worker(self, worker: Worker) -> None:
         self._active_workers.add(worker)

@@ -1,4 +1,4 @@
-"""Generate MedReport raster icon assets."""
+"""Generate AI MRI Analyzer raster icon assets."""
 
 from __future__ import annotations
 

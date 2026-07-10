@@ -19,7 +19,7 @@ class SettingsService:
     """Persist user preferences through QSettings."""
 
     def __init__(self) -> None:
-        self._settings = QSettings("MedReport", "MedReport")
+        self._settings = QSettings("AI MRI Analyzer", "AI MRI Analyzer")
 
     def window_size(self, default: QSize) -> QSize:
         """Return the saved main window size."""

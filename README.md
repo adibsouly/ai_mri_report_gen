@@ -62,7 +62,7 @@ uv run medreport
 Reports are autosaved to:
 
 ```text
-~/Library/Application Support/MedReport/reports/
+~/Library/Application Support/AI MRI Analyzer/reports/
 ```
 
 ## Build The App
@@ -76,7 +76,7 @@ uv run python scripts/package_pyinstaller.py
 The packaged macOS app will be created at:
 
 ```text
-dist/MedReport.app
+dist/AI MRI Analyzer.app
 ```
 
 ## Development

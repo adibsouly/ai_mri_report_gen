@@ -18,7 +18,7 @@ LM Studio is the default AI interpreter.
 2. Load a vision-capable local model.
 3. Start the local server.
 4. Keep the default server URL as `http://localhost:1234/v1`.
-5. In MedReport, open `AI Config > AI Config...`.
+5. In AI MRI Analyzer, open `AI Config > AI Config...`.
 6. Confirm:
    - Provider: `LM Studio`
    - Base URL: `http://localhost:1234/v1`
@@ -47,7 +47,7 @@ uv run medreport
 Reports are autosaved to:
 
 ```text
-~/Library/Application Support/MedReport/reports/
+~/Library/Application Support/AI MRI Analyzer/reports/
 ```
 
 Use `Report > Save Report As...` or `File > Save Report As...` to save another copy.
@@ -63,10 +63,10 @@ uv run python scripts/package_pyinstaller.py
 The packaged app is created under:
 
 ```text
-dist/MedReport.app
+dist/AI MRI Analyzer.app
 ```
 
 ## Notes
 
-MedReport creates clinician-reviewable AI report drafts. It is not a standalone
+AI MRI Analyzer creates clinician-reviewable AI report drafts. It is not a standalone
 diagnostic device and generated reports must be reviewed by a qualified clinician.
