@@ -52,6 +52,15 @@ class SettingsService:
             folders.remove(folder_text)
         self._settings.setValue("recent/folders", [folder_text, *folders[:9]])
 
+    def last_import_folder(self) -> Path | None:
+        """Return the most recently imported folder when it still exists."""
+
+        folders = self.recent_folders()
+        if not folders:
+            return None
+        folder = Path(folders[0])
+        return folder if folder.is_dir() else None
+
     def recent_folders(self) -> list[str]:
         """Return recent import folders."""
 

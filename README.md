@@ -15,6 +15,7 @@ Ollama, Claude, Grok, Gemini, and vLLM can also be configured from the app.
 - Load MRI volumes in the background.
 - Select compact high-signal diagnostic slices to reduce local-model timeouts.
 - Generate AI-assisted MRI report drafts.
+- Review generated reports with formatted Markdown headings, lists, and emphasis.
 - See a live activity indicator while MRI analysis and report generation are running.
 - Stop an in-progress AI analysis and safely ignore late provider responses.
 - Chat with the selected AI provider to ask report-grounded follow-up questions.
@@ -23,7 +24,7 @@ Ollama, Claude, Grok, Gemini, and vLLM can also be configured from the app.
   `Gemini`, or `vLLM`
   from `AI Config > AI Config...`.
 - Autosave generated reports to Markdown files.
-- Save report drafts manually with `Report > Save Report As...`.
+- Save report drafts as rendered PDFs, Markdown, or plain text with `Report > Save Report As...`.
 - Package a standalone macOS app with PyInstaller.
 
 ## Quick Start

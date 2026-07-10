@@ -35,6 +35,7 @@ from medreport.app.services import StudyImportService, VolumeService
 from medreport.database.sqlite import SQLiteDatabase
 from medreport.models import ImageVolume, Series, Study
 from medreport.reports.ai_report import AIReportService
+from medreport.reports.pdf import save_markdown_pdf
 from medreport.settings.service import SettingsService
 from medreport.ui.ai_config_dialog import AIConfigDialog
 from medreport.ui.theme import DARK_THEME, LIGHT_THEME
@@ -302,7 +303,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, report_dock)
 
     def _choose_import_folder(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Import DICOM Folder")
+        last_folder = self._settings.last_import_folder()
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Import DICOM Folder",
+            str(last_folder) if last_folder is not None else "",
+        )
         if folder:
             self.import_folder(Path(folder))
 
@@ -507,7 +513,7 @@ class MainWindow(QMainWindow):
         self._set_ai_busy(False)
         report_path = self._save_report(report)
         self._last_report_path = report_path
-        self.report_editor.setPlainText(report)
+        self.report_editor.setMarkdown(report)
         self._chat_conversation.clear()
         self.chat_transcript.clear()
         self._update_chat_controls()
@@ -636,7 +642,7 @@ class MainWindow(QMainWindow):
         self.chat_send_button.setEnabled(can_chat)
 
     def _save_report_as(self) -> None:
-        report = self.report_editor.toPlainText().strip()
+        report = self._report_markdown()
         if not report:
             QMessageBox.information(
                 self,
@@ -645,18 +651,28 @@ class MainWindow(QMainWindow):
             )
             return
 
-        suggested = self._last_report_path or self._report_dir / "ai-report.md"
-        path_text, _selected_filter = QFileDialog.getSaveFileName(
+        suggested = self._last_report_path or self._report_dir / "ai-report.pdf"
+        path_text, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Save AI Report",
             str(suggested),
-            "Markdown (*.md);;Text (*.txt)",
+            "PDF Document (*.pdf);;Markdown (*.md);;Text (*.txt)",
         )
         if not path_text:
             return
 
         report_path = Path(path_text)
-        report_path.write_text(report, encoding="utf-8")
+        if "*.pdf" in selected_filter:
+            report_path = report_path.with_suffix(".pdf")
+            try:
+                save_markdown_pdf(report, report_path)
+            except OSError as error:
+                self._show_error(f"Could not save the PDF report: {error}")
+                return
+        else:
+            suffix = ".md" if "*.md" in selected_filter else ".txt"
+            report_path = report_path.with_suffix(suffix)
+            report_path.write_text(report, encoding="utf-8")
         self._last_report_path = report_path
         self.statusBar().showMessage(f"Report saved to {report_path}")
 
@@ -797,6 +813,11 @@ class MainWindow(QMainWindow):
         report_path = self._report_dir / f"{timestamp}-{patient_part}-ai-report.md"
         report_path.write_text(report, encoding="utf-8")
         return report_path
+
+    def _report_markdown(self) -> str:
+        """Return the formatted report editor contents as Markdown."""
+
+        return self.report_editor.toMarkdown().strip()
 
     def _patient_label(self) -> str:
         if not self._studies:
