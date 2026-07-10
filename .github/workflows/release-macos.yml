@@ -1,0 +1,31 @@
+name: Release macOS app
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - name: Build the macOS app
+        run: uv run --isolated --extra packaging python scripts/package_pyinstaller.py
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI-MRI-Analyzer-macOS
+          path: dist/AI-MRI-Analyzer-macOS-arm64-v*.zip
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/AI-MRI-Analyzer-macOS-arm64-v*.zip --title "$GITHUB_REF_NAME" --generate-notes

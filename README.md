@@ -99,6 +99,13 @@ dist/AI-MRI-Analyzer-macOS-arm64-v0.1.0.zip
 The default build is ad-hoc signed. Set `MEDREPORT_CODESIGN_IDENTITY` to a Developer ID
 Application identity when preparing a notarized public distribution.
 
+## Downloadable macOS Releases
+
+Pushing a version tag such as `v0.1.0` starts the macOS release workflow. It builds
+the app on a macOS runner and publishes `AI-MRI-Analyzer-macOS-arm64-v0.1.0.zip` to
+the matching GitHub Release, where users can download it directly. The same ZIP is
+also retained as an Actions artifact for each workflow run.
+
 ## Development
 
 ```bash
