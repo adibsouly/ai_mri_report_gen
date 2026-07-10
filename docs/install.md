@@ -24,9 +24,19 @@ LM Studio is the default AI interpreter.
    - Base URL: `http://localhost:1234/v1`
    - Model: the model name exposed by LM Studio
 
-## Configure OpenAI
+## Configure Other AI Providers
 
-Open `AI Config > AI Config...`, choose `OpenAI`, enter the model and API key, then save.
+Open `AI Config > AI Config...`, choose a provider, enter the model, endpoint, and API key
+where required, then save.
+
+Supported providers:
+
+- `OpenAI`: API key required, model `gpt-5.5`
+- `Ollama`: `http://localhost:11434/v1`, model `llava`
+- `Claude`: API key required, `https://api.anthropic.com/v1`
+- `Grok`: API key required, `https://api.x.ai/v1`
+- `Gemini`: API key required, `https://generativelanguage.googleapis.com/v1beta`
+- `vLLM`: `http://localhost:8000/v1`, model `local-model`
 
 Environment alternative:
 

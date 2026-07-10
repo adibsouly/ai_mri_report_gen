@@ -7,9 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, QSize
 
 from medreport.reports.ai_report import (
-    DEFAULT_LM_STUDIO_BASE_URL,
-    DEFAULT_LM_STUDIO_MODEL,
-    DEFAULT_REPORT_MODEL,
+    PROVIDER_DEFAULTS,
     AIProvider,
     AIProviderConfig,
 )
@@ -56,30 +54,29 @@ class SettingsService:
 
         provider_text = str(self._settings.value("ai/provider", AIProvider.LM_STUDIO.value))
         provider = AIProvider(provider_text)
-        if provider is AIProvider.OPENAI:
-            return AIProviderConfig(
-                provider=provider,
-                model=str(self._settings.value("ai/openai/model", DEFAULT_REPORT_MODEL)),
-                base_url=None,
-                api_key=str(self._settings.value("ai/openai/api_key", "")),
-            )
+        defaults = PROVIDER_DEFAULTS[provider]
+        settings_key = provider.value
         return AIProviderConfig(
             provider=provider,
-            model=str(self._settings.value("ai/lm_studio/model", DEFAULT_LM_STUDIO_MODEL)),
-            base_url=str(
-                self._settings.value("ai/lm_studio/base_url", DEFAULT_LM_STUDIO_BASE_URL)
+            model=str(self._settings.value(f"ai/{settings_key}/model", defaults.model)),
+            base_url=_optional_settings_value(
+                self._settings.value(f"ai/{settings_key}/base_url", defaults.base_url)
             ),
-            api_key=str(self._settings.value("ai/lm_studio/api_key", "lm-studio")),
+            api_key=str(self._settings.value(f"ai/{settings_key}/api_key", defaults.api_key)),
         )
 
     def save_ai_provider_config(self, config: AIProviderConfig) -> None:
         """Persist AI provider configuration."""
 
         self._settings.setValue("ai/provider", config.provider.value)
-        if config.provider is AIProvider.OPENAI:
-            self._settings.setValue("ai/openai/model", config.model)
-            self._settings.setValue("ai/openai/api_key", config.api_key)
-            return
-        self._settings.setValue("ai/lm_studio/model", config.model)
-        self._settings.setValue("ai/lm_studio/base_url", config.base_url or "")
-        self._settings.setValue("ai/lm_studio/api_key", config.api_key)
+        settings_key = config.provider.value
+        self._settings.setValue(f"ai/{settings_key}/model", config.model)
+        self._settings.setValue(f"ai/{settings_key}/base_url", config.base_url or "")
+        self._settings.setValue(f"ai/{settings_key}/api_key", config.api_key)
+
+
+def _optional_settings_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None

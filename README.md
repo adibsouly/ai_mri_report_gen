@@ -2,11 +2,11 @@
 
 AI MRI Report Gen is a local-first desktop workstation for importing DICOM MRI studies
 and generating clinician-reviewable AI report drafts. It is built with Python 3.12,
-PySide6, pydicom, SimpleITK, and an OpenAI-compatible AI provider interface.
+PySide6, pydicom, SimpleITK, and configurable AI provider connections.
 
 LM Studio is the default AI interpreter, so MRI slices can be analyzed through a local
-vision-capable model at `http://localhost:1234/v1`. OpenAI cloud models can also be
-configured from the app.
+vision-capable model at `http://localhost:1234/v1`. OpenAI, Ollama, Claude, Grok,
+Gemini, and vLLM can also be configured from the app.
 
 ## Features
 
@@ -15,7 +15,8 @@ configured from the app.
 - Load MRI volumes in the background.
 - Select compact high-signal diagnostic slices to reduce local-model timeouts.
 - Generate AI-assisted MRI report drafts.
-- Configure `LM Studio` or `OpenAI` from `AI Config > AI Config...`.
+- Configure `LM Studio`, `OpenAI`, `Ollama`, `Claude`, `Grok`, `Gemini`, or `vLLM`
+  from `AI Config > AI Config...`.
 - Autosave generated reports to Markdown files.
 - Save report drafts manually with `Report > Save Report As...`.
 - Package a standalone macOS app with PyInstaller.
@@ -39,9 +40,17 @@ uv run medreport
 5. In the app, open `AI Config > AI Config...`.
 6. Set the model name to the model exposed by LM Studio.
 
-## OpenAI Setup
+## Other AI Providers
 
-Open `AI Config > AI Config...`, choose `OpenAI`, enter your model and API key, then save.
+Open `AI Config > AI Config...`, choose a provider, enter the model, endpoint, and API key
+where required, then save. Defaults:
+
+- `OpenAI`: API key required, model `gpt-5.5`
+- `Ollama`: `http://localhost:11434/v1`, model `llava`
+- `Claude`: API key required, `https://api.anthropic.com/v1`
+- `Grok`: API key required, `https://api.x.ai/v1`
+- `Gemini`: API key required, `https://generativelanguage.googleapis.com/v1beta`
+- `vLLM`: `http://localhost:8000/v1`, model `local-model`
 
 You can also use environment variables:
 

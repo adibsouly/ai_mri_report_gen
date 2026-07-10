@@ -14,23 +14,22 @@ from PySide6.QtWidgets import (
 )
 
 from medreport.reports.ai_report import (
-    DEFAULT_LM_STUDIO_BASE_URL,
-    DEFAULT_LM_STUDIO_MODEL,
-    DEFAULT_REPORT_MODEL,
+    PROVIDER_DEFAULTS,
     AIProvider,
     AIProviderConfig,
 )
 
 
 class AIConfigDialog(QDialog):
-    """Dialog for selecting LM Studio or OpenAI report generation."""
+    """Dialog for selecting AI report generation providers."""
 
     def __init__(self, config: AIProviderConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AI Config")
+        self._current_config = config
         self.provider_combo = QComboBox()
-        self.provider_combo.addItem("LM Studio", AIProvider.LM_STUDIO.value)
-        self.provider_combo.addItem("OpenAI", AIProvider.OPENAI.value)
+        for provider, defaults in PROVIDER_DEFAULTS.items():
+            self.provider_combo.addItem(defaults.label, provider.value)
         self.model_edit = QLineEdit()
         self.base_url_edit = QLineEdit()
         self.api_key_edit = QLineEdit()
@@ -48,18 +47,12 @@ class AIConfigDialog(QDialog):
         """Return the selected provider configuration."""
 
         provider = AIProvider(str(self.provider_combo.currentData()))
-        if provider is AIProvider.OPENAI:
-            return AIProviderConfig(
-                provider=provider,
-                model=self.model_edit.text().strip() or DEFAULT_REPORT_MODEL,
-                base_url=None,
-                api_key=self.api_key_edit.text().strip(),
-            )
+        defaults = PROVIDER_DEFAULTS[provider]
         return AIProviderConfig(
             provider=provider,
-            model=self.model_edit.text().strip() or DEFAULT_LM_STUDIO_MODEL,
-            base_url=self.base_url_edit.text().strip() or DEFAULT_LM_STUDIO_BASE_URL,
-            api_key=self.api_key_edit.text().strip() or "lm-studio",
+            model=self.model_edit.text().strip() or defaults.model,
+            base_url=self.base_url_edit.text().strip() or defaults.base_url,
+            api_key=self.api_key_edit.text().strip() or defaults.api_key,
         )
 
     def _build_layout(self) -> None:
@@ -92,14 +85,10 @@ class AIConfigDialog(QDialog):
 
     def _sync_provider_fields(self) -> None:
         provider = AIProvider(str(self.provider_combo.currentData()))
-        is_lm_studio = provider is AIProvider.LM_STUDIO
-        self.base_url_edit.setEnabled(is_lm_studio)
-        if is_lm_studio:
-            if not self.model_edit.text():
-                self.model_edit.setText(DEFAULT_LM_STUDIO_MODEL)
-            if not self.base_url_edit.text():
-                self.base_url_edit.setText(DEFAULT_LM_STUDIO_BASE_URL)
-            if not self.api_key_edit.text():
-                self.api_key_edit.setText("lm-studio")
-        elif self.model_edit.text() == DEFAULT_LM_STUDIO_MODEL:
-            self.model_edit.setText(DEFAULT_REPORT_MODEL)
+        defaults = PROVIDER_DEFAULTS[provider]
+        self.base_url_edit.setEnabled(defaults.base_url is not None)
+        if self._current_config.provider is provider:
+            return
+        self.model_edit.setText(defaults.model)
+        self.base_url_edit.setText(defaults.base_url or "")
+        self.api_key_edit.setText(defaults.api_key)

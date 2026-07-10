@@ -9,6 +9,7 @@ import numpy as np
 
 from medreport.models import ImageVolume, Series
 from medreport.reports.ai_report import (
+    PROVIDER_DEFAULTS,
     AIProvider,
     AIProviderConfig,
     AIReportRequest,
@@ -75,6 +76,33 @@ def test_ai_report_service_defaults_to_lm_studio() -> None:
 
     assert service.is_configured()
     assert "LM Studio" in service.configuration_hint()
+
+
+def test_all_requested_ai_providers_are_registered() -> None:
+    assert {
+        AIProvider.LM_STUDIO,
+        AIProvider.OPENAI,
+        AIProvider.OLLAMA,
+        AIProvider.CLAUDE,
+        AIProvider.GROK,
+        AIProvider.GEMINI,
+        AIProvider.VLLM,
+    } == set(PROVIDER_DEFAULTS)
+
+
+def test_api_key_providers_require_credentials() -> None:
+    for provider in [AIProvider.OPENAI, AIProvider.CLAUDE, AIProvider.GROK, AIProvider.GEMINI]:
+        service = AIReportService(
+            config=AIProviderConfig(
+                provider=provider,
+                model=PROVIDER_DEFAULTS[provider].model,
+                base_url=PROVIDER_DEFAULTS[provider].base_url,
+                api_key="",
+            )
+        )
+
+        assert not service.is_configured()
+        assert PROVIDER_DEFAULTS[provider].label in service.configuration_hint()
 
 
 def test_ai_report_service_sends_text_and_images() -> None:
