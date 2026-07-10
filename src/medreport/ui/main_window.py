@@ -9,10 +9,12 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QThreadPool
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QDockWidget,
     QFileDialog,
     QMainWindow,
     QMessageBox,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -36,6 +38,7 @@ from medreport.ui.workers import (
 )
 
 SERIES_ROLE = Qt.ItemDataRole.UserRole
+IMAGE_INDEX_ROLE = Qt.ItemDataRole.UserRole + 1
 Worker = StudyImportWorker | VolumeLoadWorker | AIImportedStudyReportWorker
 
 
@@ -64,6 +67,7 @@ class MainWindow(QMainWindow):
         self._active_workers: set[Worker] = set()
         self._current_series: Series | None = None
         self._current_volume: ImageVolume | None = None
+        self._pending_slice_index: int | None = None
         self._last_report_path: Path | None = None
 
         self.viewer = ImageViewer()
@@ -106,10 +110,39 @@ class MainWindow(QMainWindow):
         about_me_action = QAction("About Me", self)
         about_me_action.triggered.connect(self._show_about_me)
 
+        previous_slice_action = QAction(_app_icon("go-previous"), "Previous Image", self)
+        previous_slice_action.triggered.connect(self._previous_slice)
+
+        next_slice_action = QAction(_app_icon("go-next"), "Next Image", self)
+        next_slice_action.triggered.connect(self._next_slice)
+
+        zoom_in_action = QAction(_app_icon("zoom-in"), "Zoom In", self)
+        zoom_in_action.triggered.connect(self.viewer.zoom_in)
+
+        zoom_out_action = QAction(_app_icon("zoom-out"), "Zoom Out", self)
+        zoom_out_action.triggered.connect(self.viewer.zoom_out)
+
+        fit_action = QAction(_app_icon("zoom-fit-best"), "Fit", self)
+        fit_action.triggered.connect(self.viewer.fit_to_window)
+
+        pan_action = QAction(_app_icon("transform-move"), "Pan", self)
+        pan_action.setCheckable(True)
+        pan_action.setChecked(True)
+        pan_action.triggered.connect(self.viewer.set_pan_enabled)
+
+        export_jpeg_action = QAction(_app_icon("image-x-generic"), "Export JPEG", self)
+        export_jpeg_action.triggered.connect(self._export_viewer_jpeg)
+
+        export_pdf_action = QAction(_app_icon("application-pdf"), "Export PDF", self)
+        export_pdf_action.triggered.connect(self._export_viewer_pdf)
+
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(open_action)
         file_menu.addSeparator()
         file_menu.addAction(save_report_action)
+        file_menu.addSeparator()
+        file_menu.addAction(export_jpeg_action)
+        file_menu.addAction(export_pdf_action)
 
         report_menu = self.menuBar().addMenu("Report")
         report_menu.addAction(ai_report_action)
@@ -127,8 +160,24 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
         self.addToolBar(toolbar)
 
+        viewer_toolbar = QToolBar("Image Viewer")
+        viewer_toolbar.setMovable(False)
+        for action in [
+            previous_slice_action,
+            next_slice_action,
+            zoom_in_action,
+            zoom_out_action,
+            fit_action,
+            pan_action,
+            export_jpeg_action,
+            export_pdf_action,
+        ]:
+            viewer_toolbar.addAction(action)
+        self.addToolBar(viewer_toolbar)
+
     def _build_docks(self) -> None:
         self.study_tree.setHeaderLabels(["Study Explorer"])
+        self.study_tree.itemClicked.connect(self._handle_tree_click)
         self.study_tree.itemDoubleClicked.connect(self._handle_tree_double_click)
 
         study_dock = QDockWidget("Study Explorer", self)
@@ -218,8 +267,10 @@ class MainWindow(QMainWindow):
                 )
                 series_item.setData(0, SERIES_ROLE, series.series_instance_uid)
                 study_item.addChild(series_item)
-                for image in series.images[:50]:
+                for image_index, image in enumerate(series.sorted_images()):
                     image_item = QTreeWidgetItem([f"Image {image.instance_number}"])
+                    image_item.setData(0, SERIES_ROLE, series.series_instance_uid)
+                    image_item.setData(0, IMAGE_INDEX_ROLE, image_index)
                     series_item.addChild(image_item)
             self.study_tree.addTopLevelItem(study_item)
         self.study_tree.expandToDepth(1)
@@ -227,11 +278,28 @@ class MainWindow(QMainWindow):
     def _handle_tree_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
         data = item.data(0, SERIES_ROLE)
         if isinstance(data, str) and data in self._series_by_uid:
-            self._load_series(self._series_by_uid[data])
+            image_index = item.data(0, IMAGE_INDEX_ROLE)
+            initial_slice = image_index if isinstance(image_index, int) else None
+            self._load_series(self._series_by_uid[data], initial_slice=initial_slice)
 
-    def _load_series(self, series: Series) -> None:
+    def _handle_tree_click(self, item: QTreeWidgetItem, _column: int) -> None:
+        image_index = item.data(0, IMAGE_INDEX_ROLE)
+        series_uid = item.data(0, SERIES_ROLE)
+        if not isinstance(series_uid, str) or not isinstance(image_index, int):
+            return
+        series = self._series_by_uid.get(series_uid)
+        if series is None:
+            return
+        if self._current_series and self._current_series.series_instance_uid == series_uid:
+            self.viewer.set_slice_index(image_index)
+            self.statusBar().showMessage(f"Showing image {image_index + 1}")
+            return
+        self._load_series(series, initial_slice=image_index)
+
+    def _load_series(self, series: Series, initial_slice: int | None = None) -> None:
         self.statusBar().showMessage(f"Loading {series.description}...")
         self._populate_metadata(series)
+        self._pending_slice_index = initial_slice
         worker = VolumeLoadWorker(self._volume_service, series)
         worker.signals.finished.connect(
             lambda loaded_series, volume, active_worker=worker: self._handle_volume_loaded(
@@ -258,8 +326,12 @@ class MainWindow(QMainWindow):
         self._current_series = series
         self._current_volume = volume
         self.viewer.set_volume(volume)
+        if self._pending_slice_index is not None:
+            self.viewer.set_slice_index(self._pending_slice_index)
+            self._pending_slice_index = None
         self.statusBar().showMessage(
-            f"Loaded {series.description}: {volume.slice_count} slice(s), spacing {volume.spacing}"
+            f"Loaded {series.description}: image {self.viewer.slice_index + 1} of "
+            f"{volume.slice_count}, spacing {volume.spacing}"
         )
 
     def _generate_ai_report(self) -> None:
@@ -348,6 +420,58 @@ class MainWindow(QMainWindow):
         self._settings.save_ai_provider_config(config)
         self._ai_report_service.update_config(config)
         self.statusBar().showMessage(f"AI provider set to {config.label}: {config.model}")
+
+    def _previous_slice(self) -> None:
+        self.viewer.previous_slice()
+        self._show_slice_status()
+
+    def _next_slice(self) -> None:
+        self.viewer.next_slice()
+        self._show_slice_status()
+
+    def _show_slice_status(self) -> None:
+        if self._current_volume is None:
+            return
+        self.statusBar().showMessage(
+            f"Showing image {self.viewer.slice_index + 1} of {self._current_volume.slice_count}"
+        )
+
+    def _export_viewer_jpeg(self) -> None:
+        self._export_viewer_image("JPEG Image", "JPEG Images (*.jpg *.jpeg)", "jpg")
+
+    def _export_viewer_pdf(self) -> None:
+        self._export_viewer_image("PDF Document", "PDF Documents (*.pdf)", "pdf")
+
+    def _export_viewer_image(self, label: str, file_filter: str, suffix: str) -> None:
+        if not self.viewer.has_image:
+            QMessageBox.information(
+                self,
+                "AI MRI Analyzer",
+                "Load an image before exporting.",
+            )
+            return
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        suggested = self._report_dir / f"mri-image-{timestamp}.{suffix}"
+        path_text, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            f"Export {label}",
+            str(suggested),
+            file_filter,
+        )
+        if not path_text:
+            return
+        export_path = Path(path_text)
+        if export_path.suffix.lower() != f".{suffix}":
+            export_path = export_path.with_suffix(f".{suffix}")
+        exported = (
+            self.viewer.export_pdf(export_path)
+            if suffix == "pdf"
+            else self.viewer.export_jpeg(export_path)
+        )
+        if not exported:
+            self._show_error(f"Could not export {label}.")
+            return
+        self.statusBar().showMessage(f"Exported {label} to {export_path}")
 
     def _show_about_me(self) -> None:
         QMessageBox.about(
@@ -450,3 +574,25 @@ def _asset_path(relative_path: str) -> Path:
     if isinstance(bundle_root, str):
         return Path(bundle_root) / "assets" / relative_path
     return Path(__file__).resolve().parents[3] / "assets" / relative_path
+
+
+def _app_icon(theme_name: str) -> QIcon:
+    """Return a themed icon with a Qt standard fallback."""
+
+    icon = QIcon.fromTheme(theme_name)
+    if not icon.isNull():
+        return icon
+
+    style = QApplication.style()
+    fallback_icons = {
+        "go-previous": QStyle.StandardPixmap.SP_ArrowBack,
+        "go-next": QStyle.StandardPixmap.SP_ArrowForward,
+        "zoom-in": QStyle.StandardPixmap.SP_TitleBarMaxButton,
+        "zoom-out": QStyle.StandardPixmap.SP_TitleBarMinButton,
+        "zoom-fit-best": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        "transform-move": QStyle.StandardPixmap.SP_FileDialogContentsView,
+        "image-x-generic": QStyle.StandardPixmap.SP_FileIcon,
+        "application-pdf": QStyle.StandardPixmap.SP_DialogSaveButton,
+    }
+    fallback = fallback_icons.get(theme_name, QStyle.StandardPixmap.SP_FileIcon)
+    return style.standardIcon(fallback)

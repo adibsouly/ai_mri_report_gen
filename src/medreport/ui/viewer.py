@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage, QPainter, QPixmap, QTransform, QWheelEvent
+from pathlib import Path
+
+from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtGui import QImage, QPageSize, QPainter, QPdfWriter, QPixmap, QTransform, QWheelEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 from medreport.models import ImageVolume
@@ -36,6 +38,12 @@ class ImageViewer(QGraphicsView):
 
         return self._slice_index
 
+    @property
+    def has_image(self) -> bool:
+        """Return whether the viewer currently has an image."""
+
+        return self._volume is not None and not self._pixmap_item.pixmap().isNull()
+
     def set_volume(self, volume: ImageVolume) -> None:
         """Display a newly loaded image volume."""
 
@@ -43,6 +51,24 @@ class ImageViewer(QGraphicsView):
         self._slice_index = 0
         self.reset_view()
         self._render_slice()
+
+    def set_slice_index(self, index: int) -> None:
+        """Jump to a specific slice index."""
+
+        if self._volume is None:
+            return
+        self._slice_index = max(0, min(self._volume.slice_count - 1, index))
+        self._render_slice()
+
+    def previous_slice(self) -> None:
+        """Move to the previous slice."""
+
+        self.set_slice_index(self._slice_index - 1)
+
+    def next_slice(self) -> None:
+        """Move to the next slice."""
+
+        self.set_slice_index(self._slice_index + 1)
 
     def reset_view(self) -> None:
         """Reset transform and image adjustments."""
@@ -53,6 +79,82 @@ class ImageViewer(QGraphicsView):
         self._flip_vertical = False
         self.setTransform(QTransform())
         self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def zoom_in(self) -> None:
+        """Zoom into the current image."""
+
+        self._scale_view(1.2)
+
+    def zoom_out(self) -> None:
+        """Zoom out of the current image."""
+
+        self._scale_view(1 / 1.2)
+
+    def fit_to_window(self) -> None:
+        """Fit the current image to the viewport."""
+
+        self.setTransform(QTransform())
+        self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def set_pan_enabled(self, enabled: bool) -> None:
+        """Enable or disable hand-drag panning."""
+
+        mode = (
+            QGraphicsView.DragMode.ScrollHandDrag
+            if enabled
+            else QGraphicsView.DragMode.NoDrag
+        )
+        self.setDragMode(mode)
+
+    def export_jpeg(self, path: Path) -> bool:
+        """Export the current rendered image as a JPEG file."""
+
+        image = self.current_image()
+        if image is None:
+            return False
+        return image.save(str(path), "JPEG", 95)
+
+    def export_pdf(self, path: Path) -> bool:
+        """Export the current rendered image as a single-page PDF."""
+
+        image = self.current_image()
+        if image is None:
+            return False
+        writer = QPdfWriter(str(path))
+        writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        writer.setResolution(300)
+        painter = QPainter(writer)
+        page_rect = QRectF(writer.pageLayout().paintRectPixels(writer.resolution()))
+        image_size = image.size()
+        scale = min(
+            page_rect.width() / image_size.width(),
+            page_rect.height() / image_size.height(),
+        )
+        scaled_rect = QRectF(
+            0,
+            0,
+            image_size.width() * scale,
+            image_size.height() * scale,
+        )
+        scaled_rect.moveCenter(page_rect.center())
+        painter.drawImage(scaled_rect, image)
+        painter.end()
+        return True
+
+    def current_image(self) -> QImage | None:
+        """Return the currently rendered image, including view adjustments."""
+
+        if not self.has_image:
+            return None
+        scene_rect = self._scene.itemsBoundingRect()
+        width = max(1, int(scene_rect.width()))
+        height = max(1, int(scene_rect.height()))
+        image = QImage(width, height, QImage.Format.Format_RGB32)
+        image.fill(Qt.GlobalColor.black)
+        painter = QPainter(image)
+        self._scene.render(painter, QRectF(image.rect()), scene_rect)
+        painter.end()
+        return image
 
     def set_inverted(self, enabled: bool) -> None:
         """Enable or disable grayscale inversion."""
@@ -83,8 +185,7 @@ class ImageViewer(QGraphicsView):
 
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-            self._zoom *= factor
-            self.scale(factor, factor)
+            self._scale_view(factor)
             return
 
         if self._volume is None:
@@ -115,6 +216,11 @@ class ImageViewer(QGraphicsView):
         transform.rotate(self._rotation)
         transform.scale(-1 if self._flip_horizontal else 1, -1 if self._flip_vertical else 1)
         self._pixmap_item.setTransform(transform)
+        self._scene.setSceneRect(self._scene.itemsBoundingRect())
+
+    def _scale_view(self, factor: float) -> None:
+        self._zoom *= factor
+        self.scale(factor, factor)
 
     def mousePressEvent(self, event: object) -> None:
         """Keep typed event signature local to PySide overloads."""
