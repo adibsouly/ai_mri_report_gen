@@ -125,15 +125,10 @@ class MainWindow(QMainWindow):
         fit_action = QAction(_app_icon("zoom-fit-best"), "Fit", self)
         fit_action.triggered.connect(self.viewer.fit_to_window)
 
-        pan_action = QAction(_app_icon("transform-move"), "Pan", self)
-        pan_action.setCheckable(True)
-        pan_action.setChecked(True)
-        pan_action.triggered.connect(self.viewer.set_pan_enabled)
-
-        export_jpeg_action = QAction(_app_icon("image-x-generic"), "Export JPEG", self)
+        export_jpeg_action = QAction(_asset_icon("icons/export_jpeg_icon.png"), "Export JPEG", self)
         export_jpeg_action.triggered.connect(self._export_viewer_jpeg)
 
-        export_pdf_action = QAction(_app_icon("application-pdf"), "Export PDF", self)
+        export_pdf_action = QAction(_asset_icon("icons/export_pdf_icon.png"), "Export PDF", self)
         export_pdf_action.triggered.connect(self._export_viewer_pdf)
 
         file_menu = self.menuBar().addMenu("File")
@@ -162,13 +157,13 @@ class MainWindow(QMainWindow):
 
         viewer_toolbar = QToolBar("Image Viewer")
         viewer_toolbar.setMovable(False)
+        viewer_toolbar.setIconSize(QSize(20, 20))
         for action in [
             previous_slice_action,
             next_slice_action,
             zoom_in_action,
             zoom_out_action,
             fit_action,
-            pan_action,
             export_jpeg_action,
             export_pdf_action,
         ]:
@@ -590,9 +585,15 @@ def _app_icon(theme_name: str) -> QIcon:
         "zoom-in": QStyle.StandardPixmap.SP_TitleBarMaxButton,
         "zoom-out": QStyle.StandardPixmap.SP_TitleBarMinButton,
         "zoom-fit-best": QStyle.StandardPixmap.SP_FileDialogDetailedView,
-        "transform-move": QStyle.StandardPixmap.SP_FileDialogContentsView,
-        "image-x-generic": QStyle.StandardPixmap.SP_FileIcon,
-        "application-pdf": QStyle.StandardPixmap.SP_DialogSaveButton,
     }
     fallback = fallback_icons.get(theme_name, QStyle.StandardPixmap.SP_FileIcon)
     return style.standardIcon(fallback)
+
+
+def _asset_icon(relative_path: str) -> QIcon:
+    """Return a small icon from bundled assets."""
+
+    icon_path = _asset_path(relative_path)
+    if icon_path.exists():
+        return QIcon(str(icon_path))
+    return _app_icon("fallback")
