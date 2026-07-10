@@ -26,7 +26,17 @@ class AIConfigDialog(QDialog):
     def __init__(self, config: AIProviderConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AI Config")
-        self._current_config = config
+        self._provider_configs = {
+            provider: AIProviderConfig(
+                provider=provider,
+                model=defaults.model,
+                base_url=defaults.base_url,
+                api_key=defaults.api_key,
+            )
+            for provider, defaults in PROVIDER_DEFAULTS.items()
+        }
+        self._provider_configs[config.provider] = config
+        self._active_provider = config.provider
         self.provider_combo = QComboBox()
         for provider, defaults in PROVIDER_DEFAULTS.items():
             self.provider_combo.addItem(defaults.label, provider.value)
@@ -47,6 +57,9 @@ class AIConfigDialog(QDialog):
         """Return the selected provider configuration."""
 
         provider = AIProvider(str(self.provider_combo.currentData()))
+        return self._config_from_fields(provider)
+
+    def _config_from_fields(self, provider: AIProvider) -> AIProviderConfig:
         defaults = PROVIDER_DEFAULTS[provider]
         return AIProviderConfig(
             provider=provider,
@@ -79,16 +92,19 @@ class AIConfigDialog(QDialog):
     def _load_config(self, config: AIProviderConfig) -> None:
         index = self.provider_combo.findData(config.provider.value)
         self.provider_combo.setCurrentIndex(max(0, index))
+        self._apply_config(config)
+
+    def _apply_config(self, config: AIProviderConfig) -> None:
+        defaults = PROVIDER_DEFAULTS[config.provider]
+        self.base_url_edit.setEnabled(defaults.base_url is not None)
         self.model_edit.setText(config.model)
         self.base_url_edit.setText(config.base_url or "")
         self.api_key_edit.setText(config.api_key)
 
     def _sync_provider_fields(self) -> None:
         provider = AIProvider(str(self.provider_combo.currentData()))
-        defaults = PROVIDER_DEFAULTS[provider]
-        self.base_url_edit.setEnabled(defaults.base_url is not None)
-        if self._current_config.provider is provider:
-            return
-        self.model_edit.setText(defaults.model)
-        self.base_url_edit.setText(defaults.base_url or "")
-        self.api_key_edit.setText(defaults.api_key)
+        self._provider_configs[self._active_provider] = self._config_from_fields(
+            self._active_provider
+        )
+        self._active_provider = provider
+        self._apply_config(self._provider_configs[provider])
