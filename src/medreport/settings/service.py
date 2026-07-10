@@ -30,6 +30,19 @@ class SettingsService:
 
         self._settings.setValue("window/size", size)
 
+    def theme(self) -> str:
+        """Return the saved visual theme, defaulting to light."""
+
+        value = str(self._settings.value("appearance/theme", "light"))
+        return value if value in {"light", "dark"} else "light"
+
+    def save_theme(self, theme: str) -> None:
+        """Persist the selected visual theme."""
+
+        if theme not in {"light", "dark"}:
+            raise ValueError(f"Unsupported theme: {theme}")
+        self._settings.setValue("appearance/theme", theme)
+
     def add_recent_folder(self, folder: Path) -> None:
         """Store a recent import folder."""
 
@@ -53,7 +66,10 @@ class SettingsService:
         """Return saved AI provider configuration."""
 
         provider_text = str(self._settings.value("ai/provider", AIProvider.LM_STUDIO.value))
-        provider = AIProvider(provider_text)
+        try:
+            provider = AIProvider(provider_text)
+        except ValueError:
+            provider = AIProvider.LM_STUDIO
         defaults = PROVIDER_DEFAULTS[provider]
         settings_key = provider.value
         return AIProviderConfig(

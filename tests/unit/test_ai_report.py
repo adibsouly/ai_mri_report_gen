@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import numpy as np
 
@@ -40,6 +41,16 @@ class StubClient:
 
     def __init__(self) -> None:
         self.responses = StubResponses()
+
+
+class StubActiveClient:
+    """Closable provider transport used to verify active cancellation."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def test_encode_representative_slices_returns_base64_pngs() -> None:
@@ -87,7 +98,66 @@ def test_all_requested_ai_providers_are_registered() -> None:
         AIProvider.GROK,
         AIProvider.GEMINI,
         AIProvider.VLLM,
+        AIProvider.APPLE_INTELLIGENCE,
     } == set(PROVIDER_DEFAULTS)
+
+
+def test_apple_intelligence_requires_the_macos_foundation_model_cli() -> None:
+    service = AIReportService(
+        config=AIProviderConfig(
+            provider=AIProvider.APPLE_INTELLIGENCE,
+            model="on-device",
+            base_url=None,
+            api_key="",
+        )
+    )
+
+    with patch("medreport.reports.ai_report.shutil.which", return_value=None):
+        assert not service.is_configured()
+        assert "macOS 27" in service.configuration_hint()
+
+
+def test_apple_intelligence_sends_mri_images_to_fm_cli() -> None:
+    service = AIReportService(
+        config=AIProviderConfig(
+            provider=AIProvider.APPLE_INTELLIGENCE,
+            model="on-device",
+            base_url=None,
+            api_key="",
+        )
+    )
+    series = Series(series_instance_uid="series-1", description="Sagittal PD", modality="MR")
+    volume = ImageVolume(
+        series_uid="series-1",
+        pixels=np.zeros((2, 4, 4), dtype=np.float32),
+        spacing=(1.0, 1.0, 1.0),
+    )
+    process = SimpleNamespace(
+        returncode=0,
+        communicate=lambda timeout: ("# MRI Report\n\nNo abnormality.", ""),
+        poll=lambda: 0,
+    )
+
+    with (
+        patch("medreport.reports.ai_report.shutil.which", return_value="/usr/bin/fm"),
+        patch("medreport.reports.ai_report.subprocess.Popen", return_value=process) as popen,
+    ):
+        report = service.generate_mri_report(AIReportRequest(series=series, volume=volume))
+
+    assert "MRI Report" in report
+    command = popen.call_args.args[0]
+    assert command[:2] == ["/usr/bin/fm", "respond"]
+    assert command.count("--image") == 2
+
+
+def test_cancel_active_request_closes_provider_transport() -> None:
+    service = AIReportService(config=AIProviderConfig())
+    transport = StubActiveClient()
+    service._register_active_resource(transport)
+
+    service.cancel_active_request()
+
+    assert transport.closed
 
 
 def test_api_key_providers_require_credentials() -> None:
@@ -169,3 +239,28 @@ def test_ai_report_service_sends_multiple_imported_series() -> None:
     content = client.responses.payload["input"][0]["content"]
     assert "Imported MRI series" in content[0]["text"]
     assert len([item for item in content if item["type"] == "input_image"]) == 4
+
+
+def test_chat_about_report_grounds_follow_up_in_report_and_history() -> None:
+    client = StubClient()
+    service = AIReportService(
+        client=client,
+        config=AIProviderConfig(provider=AIProvider.LM_STUDIO, model="test-model"),
+    )
+
+    answer = service.chat_about_report(
+        report="# MRI Report\n\n## Findings\nSmall joint effusion.",
+        question="What does effusion mean?",
+        conversation=[("Is this a final diagnosis?", "No, this is a draft.")],
+    )
+
+    assert "MRI Report" in answer
+    assert client.responses.payload is not None
+    prompt = client.responses.payload["input"][0]["content"][0]["text"]
+    assert "Small joint effusion" in prompt
+    assert "What does effusion mean?" in prompt
+    assert "No, this is a draft" in prompt
+    assert not any(
+        item["type"] == "input_image"
+        for item in client.responses.payload["input"][0]["content"]
+    )

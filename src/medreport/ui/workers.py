@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
@@ -103,6 +104,49 @@ class AIReportWorker(QRunnable):
         self.signals.finished.emit(report)
 
 
+class AIChatWorker(QRunnable):
+    """Answer a report follow-up question without blocking the UI thread."""
+
+    def __init__(
+        self,
+        service: AIReportService,
+        report: str,
+        question: str,
+        conversation: list[tuple[str, str]],
+    ) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = AIReportSignals()
+        self._service = service
+        self._report = report
+        self._question = question
+        self._conversation = conversation
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        """Request cancellation from both the worker and AI provider."""
+
+        self._cancelled.set()
+        self._service.cancel_active_request()
+
+    @Slot()
+    def run(self) -> None:
+        """Generate and emit a report-grounded answer."""
+
+        try:
+            answer = self._service.chat_about_report(
+                report=self._report,
+                question=self._question,
+                conversation=self._conversation,
+            )
+        except Exception as exc:
+            if not self._cancelled.is_set():
+                self.signals.failed.emit(str(exc))
+            return
+        if not self._cancelled.is_set():
+            self.signals.finished.emit(answer)
+
+
 class AIImportedStudyReportWorker(QRunnable):
     """Load imported MRI series and generate one report draft."""
 
@@ -118,23 +162,40 @@ class AIImportedStudyReportWorker(QRunnable):
         self._volume_service = volume_service
         self._report_service = report_service
         self._studies = studies
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        """Request cancellation from both the worker and AI provider."""
+
+        self._cancelled.set()
+        self._report_service.cancel_active_request()
 
     @Slot()
     def run(self) -> None:
         """Load MRI volumes and emit a study-level report."""
 
         try:
-            series_volumes = [
-                SeriesVolume(series=series, volume=self._volume_service.load_series(series))
-                for series in _mri_series(self._studies)
-            ]
+            series_volumes: list[SeriesVolume] = []
+            for series in _mri_series(self._studies):
+                if self._cancelled.is_set():
+                    return
+                series_volumes.append(
+                    SeriesVolume(
+                        series=series,
+                        volume=self._volume_service.load_series(series),
+                    )
+                )
+            if self._cancelled.is_set():
+                return
             report = self._report_service.generate_study_mri_report(
                 AIStudyReportRequest(series_volumes=series_volumes)
             )
         except Exception as exc:
-            self.signals.failed.emit(str(exc))
+            if not self._cancelled.is_set():
+                self.signals.failed.emit(str(exc))
             return
-        self.signals.finished.emit(report)
+        if not self._cancelled.is_set():
+            self.signals.finished.emit(report)
 
 
 def _mri_series(studies: list[Study]) -> list[Series]:

@@ -5,8 +5,8 @@ and generating clinician-reviewable AI report drafts. It is built with Python 3.
 PySide6, pydicom, SimpleITK, and configurable AI provider connections.
 
 LM Studio is the default AI interpreter, so MRI slices can be analyzed through a local
-vision-capable model at `http://localhost:1234/v1`. OpenAI, Ollama, Claude, Grok,
-Gemini, and vLLM can also be configured from the app.
+vision-capable model at `http://localhost:1234/v1`. Apple Intelligence, OpenAI,
+Ollama, Claude, Grok, Gemini, and vLLM can also be configured from the app.
 
 ## Features
 
@@ -15,7 +15,12 @@ Gemini, and vLLM can also be configured from the app.
 - Load MRI volumes in the background.
 - Select compact high-signal diagnostic slices to reduce local-model timeouts.
 - Generate AI-assisted MRI report drafts.
-- Configure `LM Studio`, `OpenAI`, `Ollama`, `Claude`, `Grok`, `Gemini`, or `vLLM`
+- See a live activity indicator while MRI analysis and report generation are running.
+- Stop an in-progress AI analysis and safely ignore late provider responses.
+- Chat with the selected AI provider to ask report-grounded follow-up questions.
+- Use the light interface by default or switch to dark mode from `Customize`.
+- Configure `Apple Intelligence`, `LM Studio`, `OpenAI`, `Ollama`, `Claude`, `Grok`,
+  `Gemini`, or `vLLM`
   from `AI Config > AI Config...`.
 - Autosave generated reports to Markdown files.
 - Save report drafts manually with `Report > Save Report As...`.
@@ -45,6 +50,8 @@ uv run medreport
 Open `AI Config > AI Config...`, choose a provider, enter the model, endpoint, and API key
 where required, then save. Defaults:
 
+- `Apple Intelligence`: on-device, no API key; requires macOS 27 or later and an
+  Apple Intelligence-capable Mac with Apple Intelligence enabled
 - `OpenAI`: API key required, model `gpt-5.5`
 - `Ollama`: `http://localhost:11434/v1`, model `llava`
 - `Claude`: API key required, `https://api.anthropic.com/v1`

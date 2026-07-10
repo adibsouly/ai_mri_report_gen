@@ -96,7 +96,10 @@ class AIConfigDialog(QDialog):
 
     def _apply_config(self, config: AIProviderConfig) -> None:
         defaults = PROVIDER_DEFAULTS[config.provider]
+        is_apple_intelligence = config.provider is AIProvider.APPLE_INTELLIGENCE
         self.base_url_edit.setEnabled(defaults.base_url is not None)
+        self.model_edit.setEnabled(not is_apple_intelligence)
+        self.api_key_edit.setEnabled(not is_apple_intelligence)
         self.model_edit.setText(config.model)
         self.base_url_edit.setText(config.base_url or "")
         self.api_key_edit.setText(config.api_key)

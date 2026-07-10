@@ -14,7 +14,7 @@ from medreport.dicom.repository import PydicomStudyRepository, SimpleITKVolumeRe
 from medreport.reports.ai_report import AIReportService
 from medreport.settings.service import SettingsService
 from medreport.ui.main_window import MainWindow
-from medreport.ui.theme import DARK_THEME
+from medreport.ui.theme import DARK_THEME, LIGHT_THEME
 
 APP_DISPLAY_NAME = "AI MRI Analyzer"
 
@@ -37,8 +37,8 @@ def main() -> int:
     application.setApplicationName(APP_DISPLAY_NAME)
     application.setApplicationDisplayName(APP_DISPLAY_NAME)
     application.setOrganizationName("AI MRI Analyzer")
-    application.setStyleSheet(DARK_THEME)
     settings = SettingsService()
+    application.setStyleSheet(DARK_THEME if settings.theme() == "dark" else LIGHT_THEME)
 
     window = MainWindow(
         study_import_service=StudyImportService(PydicomStudyRepository()),

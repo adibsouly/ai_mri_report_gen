@@ -5,8 +5,14 @@ from __future__ import annotations
 import base64
 import io
 import os
+import shutil
+import subprocess
+import tempfile
+import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Protocol, cast
 
 import httpx
@@ -30,6 +36,7 @@ DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_VLLM_MODEL = "local-model"
 DEFAULT_VLLM_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_APPLE_INTELLIGENCE_MODEL = "on-device"
 MAX_REPORT_IMAGES = 4
 MAX_STUDY_REPORT_IMAGES = 6
 MAX_CANDIDATE_SLICES_PER_SERIES = 24
@@ -51,6 +58,7 @@ class AIProvider(StrEnum):
     GROK = "grok"
     GEMINI = "gemini"
     VLLM = "vllm"
+    APPLE_INTELLIGENCE = "apple_intelligence"
 
 
 @dataclass(frozen=True)
@@ -65,6 +73,13 @@ class AIProviderDefaults:
 
 
 PROVIDER_DEFAULTS: dict[AIProvider, AIProviderDefaults] = {
+    AIProvider.APPLE_INTELLIGENCE: AIProviderDefaults(
+        label="Apple Intelligence (On-Device)",
+        model=DEFAULT_APPLE_INTELLIGENCE_MODEL,
+        base_url=None,
+        api_key="",
+        needs_api_key=False,
+    ),
     AIProvider.LM_STUDIO: AIProviderDefaults(
         label="LM Studio",
         model=DEFAULT_LM_STUDIO_MODEL,
@@ -201,12 +216,17 @@ class AIReportService:
         self._config = config or AIProviderConfig.from_environment()
         self._client = client
         self._model = model or self._config.model
+        self._request_cancelled = threading.Event()
+        self._active_resource_lock = threading.Lock()
+        self._active_resource: Any | None = None
 
     def is_configured(self) -> bool:
         """Return whether the selected AI backend can be attempted."""
 
         if self._client is not None:
             return True
+        if self._config.provider is AIProvider.APPLE_INTELLIGENCE:
+            return shutil.which("fm") is not None
         if PROVIDER_DEFAULTS[self._config.provider].needs_api_key:
             return bool(self._config.api_key)
         return bool(self._config.base_url)
@@ -223,10 +243,34 @@ class AIReportService:
         self._config = config
         self._model = config.model
 
+    def cancel_active_request(self) -> None:
+        """Signal and actively interrupt the current provider request when possible."""
+
+        self._request_cancelled.set()
+        with self._active_resource_lock:
+            resource = self._active_resource
+        poll = getattr(resource, "poll", None)
+        terminate = getattr(resource, "terminate", None)
+        if callable(poll) and callable(terminate):
+            if poll() is None:
+                with suppress(OSError):
+                    terminate()
+            return
+        close = getattr(resource, "close", None)
+        if callable(close):
+            with suppress(Exception):
+                close()
+
     def configuration_hint(self) -> str:
         """Return user-facing setup guidance for the selected backend."""
 
         defaults = PROVIDER_DEFAULTS[self._config.provider]
+        if self._config.provider is AIProvider.APPLE_INTELLIGENCE:
+            return (
+                "Apple Intelligence image analysis requires macOS 27 or later on an "
+                "Apple Intelligence-capable Mac. Turn on Apple Intelligence in System "
+                "Settings and wait for its on-device model to finish downloading."
+            )
         if defaults.needs_api_key and not self._config.api_key:
             return f"Enter a {defaults.label} API key before generating an AI report."
         if self._config.provider is AIProvider.LM_STUDIO:
@@ -283,50 +327,136 @@ class AIReportService:
             images=images,
         )
 
+    def chat_about_report(
+        self,
+        report: str,
+        question: str,
+        conversation: list[tuple[str, str]] | None = None,
+    ) -> str:
+        """Answer a follow-up question using the generated report as context."""
+
+        clean_report = report.strip()
+        clean_question = question.strip()
+        if not clean_report:
+            raise RuntimeError("Generate an AI report before starting a chat.")
+        if not clean_question:
+            raise RuntimeError("Enter a question about the AI report.")
+        if not self.is_configured():
+            raise RuntimeError(self.configuration_hint())
+
+        history = "\n\n".join(
+            f"User: {user_message}\nAssistant: {assistant_message}"
+            for user_message, assistant_message in (conversation or [])[-6:]
+        )
+        prompt = (
+            "You are helping a user understand an AI-assisted MRI report draft. "
+            "Answer only from the report and conversation supplied below. Explain medical "
+            "language clearly, distinguish report statements from general information, and "
+            "do not invent findings. Remind the user to consult a qualified clinician when "
+            "the question involves diagnosis, urgency, treatment, or next steps.\n\n"
+            f"REPORT DRAFT:\n{clean_report}\n\n"
+        )
+        if history:
+            prompt += f"PRIOR CONVERSATION:\n{history}\n\n"
+        prompt += f"USER QUESTION:\n{clean_question}"
+        return self._create_response(prompt=prompt, images=[])
+
     def _create_response(self, prompt: str, images: list[str]) -> str:
-        client = self._client or self._create_client()
-        if self._client is None and self._config.provider is AIProvider.CLAUDE:
-            return self._create_claude_response(prompt, images)
-        if self._client is None and self._config.provider is AIProvider.GEMINI:
-            return self._create_gemini_response(prompt, images)
-        if self._client is None and self._config.provider in OPENAI_COMPATIBLE_PROVIDERS:
-            return self._create_openai_compatible_response(
-                cast(OpenAI, client),
-                prompt,
-                images,
+        self._request_cancelled.clear()
+        try:
+            if self._client is None and self._config.provider is AIProvider.APPLE_INTELLIGENCE:
+                return self._create_apple_intelligence_response(prompt, images)
+            if self._client is None and self._config.provider is AIProvider.CLAUDE:
+                return self._create_claude_response(prompt, images)
+            if self._client is None and self._config.provider is AIProvider.GEMINI:
+                return self._create_gemini_response(prompt, images)
+
+            client = self._client or self._create_client()
+            if self._client is None:
+                self._register_active_resource(client)
+            if self._client is None and self._config.provider in OPENAI_COMPATIBLE_PROVIDERS:
+                return self._create_openai_compatible_response(
+                    cast(OpenAI, client),
+                    prompt,
+                    images,
+                )
+
+            content: list[dict[str, object]] = [
+                {
+                    "type": "input_text",
+                    "text": prompt,
+                }
+            ]
+            content.extend(
+                {
+                    "type": "input_image",
+                    "image_url": f"data:image/png;base64,{image}",
+                }
+                for image in images
             )
 
-        content: list[dict[str, object]] = [
-            {
-                "type": "input_text",
-                "text": prompt,
-            }
-        ]
-        content.extend(
-            {
-                "type": "input_image",
-                "image_url": f"data:image/png;base64,{image}",
-            }
-            for image in images
-        )
+            response_input = cast(
+                Any,
+                [
+                    {
+                        "role": "user",
+                        "content": content,
+                    }
+                ],
+            )
+            response = client.responses.create(
+                model=self._model,
+                input=response_input,
+            )
+            self._raise_if_cancelled()
+            output_text = getattr(response, "output_text", "")
+            if not isinstance(output_text, str) or not output_text.strip():
+                raise RuntimeError(f"{self._config.label} returned an empty report draft.")
+            return output_text.strip()
+        finally:
+            self._close_active_resource()
 
-        response_input = cast(
-            Any,
-            [
-                {
-                    "role": "user",
-                    "content": content,
-                }
-            ],
-        )
-        response = client.responses.create(
-            model=self._model,
-            input=response_input,
-        )
-        output_text = getattr(response, "output_text", "")
-        if not isinstance(output_text, str) or not output_text.strip():
-            raise RuntimeError(f"{self._config.label} returned an empty report draft.")
-        return output_text.strip()
+    def _create_apple_intelligence_response(self, prompt: str, images: list[str]) -> str:
+        """Generate a report with the macOS on-device Foundation Model CLI."""
+
+        executable = shutil.which("fm")
+        if executable is None:
+            raise RuntimeError(self.configuration_hint())
+
+        with tempfile.TemporaryDirectory(prefix="medreport-apple-intelligence-") as directory:
+            command = [executable, "respond", prompt]
+            for index, image in enumerate(images):
+                image_path = Path(directory) / f"mri-slice-{index + 1}.png"
+                try:
+                    image_path.write_bytes(base64.b64decode(image, validate=True))
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "MedReport could not prepare an MRI slice for analysis."
+                    ) from exc
+                command.extend(["--image", str(image_path)])
+
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self._register_active_resource(process)
+            try:
+                stdout, stderr = process.communicate(timeout=180)
+            except subprocess.TimeoutExpired as exc:
+                process.terminate()
+                process.communicate()
+                raise RuntimeError("Apple Intelligence analysis timed out.") from exc
+
+        self._raise_if_cancelled()
+        output_text = stdout.strip()
+        if process.returncode != 0:
+            detail = stderr.strip() or output_text or "The on-device model request failed."
+            raise RuntimeError(f"Apple Intelligence could not generate the report: {detail}")
+        if not output_text:
+            raise RuntimeError("Apple Intelligence returned an empty report draft.")
+        return output_text
 
     def _create_openai_compatible_response(
         self,
@@ -346,6 +476,7 @@ class AIReportService:
             model=self._model,
             messages=[{"role": "user", "content": cast(Any, content)}],
         )
+        self._raise_if_cancelled()
         output_text = response.choices[0].message.content or ""
         if not output_text.strip():
             raise RuntimeError(f"{self._config.label} returned an empty report draft.")
@@ -365,7 +496,9 @@ class AIReportService:
             }
             for image in images
         )
-        response = httpx.post(
+        client = httpx.Client(timeout=180)
+        self._register_active_resource(client)
+        response = client.post(
             f"{base_url}/messages",
             headers={
                 "x-api-key": self._config.api_key,
@@ -376,8 +509,8 @@ class AIReportService:
                 "max_tokens": 4096,
                 "messages": [{"role": "user", "content": content}],
             },
-            timeout=180,
         )
+        self._raise_if_cancelled()
         response.raise_for_status()
         payload = response.json()
         output_text = "\n".join(
@@ -401,12 +534,14 @@ class AIReportService:
             }
             for image in images
         )
-        response = httpx.post(
+        client = httpx.Client(timeout=180)
+        self._register_active_resource(client)
+        response = client.post(
             f"{base_url}/models/{self._model}:generateContent",
             params={"key": self._config.api_key},
             json={"contents": [{"role": "user", "parts": parts}]},
-            timeout=180,
         )
+        self._raise_if_cancelled()
         response.raise_for_status()
         payload = response.json()
         output_text = "\n".join(
@@ -426,6 +561,27 @@ class AIReportService:
             base_url=self._config.base_url,
             api_key=self._config.api_key,
         )
+
+    def _register_active_resource(self, resource: Any) -> None:
+        with self._active_resource_lock:
+            self._active_resource = resource
+        if self._request_cancelled.is_set():
+            self.cancel_active_request()
+
+    def _close_active_resource(self) -> None:
+        with self._active_resource_lock:
+            resource = self._active_resource
+            self._active_resource = None
+        if callable(getattr(resource, "poll", None)):
+            return
+        close = getattr(resource, "close", None)
+        if callable(close):
+            with suppress(Exception):
+                close()
+
+    def _raise_if_cancelled(self) -> None:
+        if self._request_cancelled.is_set():
+            raise RuntimeError("AI analysis was stopped by the user.")
 
 
 def encode_representative_slices(volume: ImageVolume, max_images: int) -> list[str]:

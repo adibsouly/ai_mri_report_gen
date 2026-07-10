@@ -7,13 +7,19 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThreadPool
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QActionGroup, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
     QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSplitter,
     QStyle,
     QTableWidget,
     QTableWidgetItem,
@@ -21,6 +27,7 @@ from PySide6.QtWidgets import (
     QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -30,8 +37,10 @@ from medreport.models import ImageVolume, Series, Study
 from medreport.reports.ai_report import AIReportService
 from medreport.settings.service import SettingsService
 from medreport.ui.ai_config_dialog import AIConfigDialog
+from medreport.ui.theme import DARK_THEME, LIGHT_THEME
 from medreport.ui.viewer import ImageViewer
 from medreport.ui.workers import (
+    AIChatWorker,
     AIImportedStudyReportWorker,
     StudyImportWorker,
     VolumeLoadWorker,
@@ -39,7 +48,7 @@ from medreport.ui.workers import (
 
 SERIES_ROLE = Qt.ItemDataRole.UserRole
 IMAGE_INDEX_ROLE = Qt.ItemDataRole.UserRole + 1
-Worker = StudyImportWorker | VolumeLoadWorker | AIImportedStudyReportWorker
+Worker = StudyImportWorker | VolumeLoadWorker | AIImportedStudyReportWorker | AIChatWorker
 
 
 class MainWindow(QMainWindow):
@@ -69,11 +78,22 @@ class MainWindow(QMainWindow):
         self._current_volume: ImageVolume | None = None
         self._pending_slice_index: int | None = None
         self._last_report_path: Path | None = None
+        self._chat_conversation: list[tuple[str, str]] = []
+        self._pending_chat_question = ""
+        self._ai_busy = False
+        self._current_ai_worker: AIImportedStudyReportWorker | AIChatWorker | None = None
 
         self.viewer = ImageViewer()
         self.study_tree = QTreeWidget()
         self.metadata_table = QTableWidget(0, 2)
         self.report_editor = QTextEdit()
+        self.analysis_label = QLabel("AI analysis in progress…")
+        self.analysis_detail_label = QLabel()
+        self.analysis_progress = QProgressBar()
+        self.stop_analysis_button = QPushButton("Stop Analysis")
+        self.chat_transcript = QTextEdit()
+        self.chat_input = QLineEdit()
+        self.chat_send_button = QPushButton("Ask AI")
 
         self._build_window()
         self._build_actions()
@@ -98,8 +118,8 @@ class MainWindow(QMainWindow):
         open_action = QAction("Import Folder", self)
         open_action.triggered.connect(self._choose_import_folder)
 
-        ai_report_action = QAction("AI Report", self)
-        ai_report_action.triggered.connect(self._generate_ai_report)
+        self.ai_report_action = QAction("Generate AI Report", self)
+        self.ai_report_action.triggered.connect(self._generate_ai_report)
 
         save_report_action = QAction("Save Report As...", self)
         save_report_action.triggered.connect(self._save_report_as)
@@ -109,6 +129,18 @@ class MainWindow(QMainWindow):
 
         about_me_action = QAction("About Me", self)
         about_me_action.triggered.connect(self._show_about_me)
+
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        self.light_theme_action = QAction("Light Theme", self, checkable=True)
+        self.dark_theme_action = QAction("Dark Theme", self, checkable=True)
+        theme_group.addAction(self.light_theme_action)
+        theme_group.addAction(self.dark_theme_action)
+        self.light_theme_action.triggered.connect(lambda: self._apply_theme("light"))
+        self.dark_theme_action.triggered.connect(lambda: self._apply_theme("dark"))
+        selected_theme = self._settings.theme()
+        self.light_theme_action.setChecked(selected_theme == "light")
+        self.dark_theme_action.setChecked(selected_theme == "dark")
 
         previous_slice_action = QAction(_app_icon("go-previous"), "Previous Image", self)
         previous_slice_action.triggered.connect(self._previous_slice)
@@ -131,6 +163,26 @@ class MainWindow(QMainWindow):
         export_pdf_action = QAction(_asset_icon("icons/export_pdf_icon.png"), "Export PDF", self)
         export_pdf_action.triggered.connect(self._export_viewer_pdf)
 
+        action_descriptions = {
+            open_action: "Import a folder containing DICOM MRI images.",
+            self.ai_report_action: "Analyze the imported MRI study and generate an AI report.",
+            save_report_action: "Save the current report draft to a file.",
+            ai_config_action: "Choose and configure the AI service provider and model.",
+            about_me_action: "Show information and safety guidance about this app.",
+            self.light_theme_action: "Use the light appearance for the app.",
+            self.dark_theme_action: "Use the dark appearance for the app.",
+            previous_slice_action: "Show the previous MRI image in the current series.",
+            next_slice_action: "Show the next MRI image in the current series.",
+            zoom_in_action: "Zoom in on the displayed MRI image.",
+            zoom_out_action: "Zoom out from the displayed MRI image.",
+            fit_action: "Fit the MRI image to the available viewer area.",
+            export_jpeg_action: "Export the displayed MRI image as a JPEG file.",
+            export_pdf_action: "Export the displayed MRI image as a PDF file.",
+        }
+        for action, description in action_descriptions.items():
+            action.setToolTip(description)
+            action.setStatusTip(description)
+
         file_menu = self.menuBar().addMenu("File")
         file_menu.addAction(open_action)
         file_menu.addSeparator()
@@ -140,18 +192,22 @@ class MainWindow(QMainWindow):
         file_menu.addAction(export_pdf_action)
 
         report_menu = self.menuBar().addMenu("Report")
-        report_menu.addAction(ai_report_action)
+        report_menu.addAction(self.ai_report_action)
         report_menu.addAction(save_report_action)
 
         ai_menu = self.menuBar().addMenu("AI Config")
         ai_menu.addAction(ai_config_action)
+
+        customize_menu = self.menuBar().addMenu("Customize")
+        customize_menu.addAction(self.light_theme_action)
+        customize_menu.addAction(self.dark_theme_action)
 
         help_menu = self.menuBar().addMenu("Help")
         help_menu.addAction(about_me_action)
 
         toolbar = QToolBar("Workflow")
         toolbar.setMovable(False)
-        for action in [open_action, ai_report_action, ai_config_action, save_report_action]:
+        for action in [open_action, self.ai_report_action, ai_config_action, save_report_action]:
             toolbar.addAction(action)
         self.addToolBar(toolbar)
 
@@ -189,8 +245,60 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, metadata_dock)
 
         self.report_editor.setPlaceholderText("AI-assisted report drafts will appear here.")
+        self.analysis_label.setVisible(False)
+        self.analysis_detail_label.setWordWrap(True)
+        self.analysis_detail_label.setVisible(False)
+        self.analysis_progress.setRange(0, 0)
+        self.analysis_progress.setTextVisible(False)
+        self.analysis_progress.setVisible(False)
+        self.stop_analysis_button.setVisible(False)
+        self.stop_analysis_button.setToolTip(
+            "Stop the current analysis and signal the AI provider to cancel its request."
+        )
+        self.stop_analysis_button.clicked.connect(self._stop_ai_operation)
+
+        self.chat_transcript.setReadOnly(True)
+        self.chat_transcript.setPlaceholderText(
+            "After generating a report, ask the AI to explain findings or medical terms."
+        )
+        self.chat_input.setPlaceholderText("Ask a question about this report…")
+        self.chat_input.setEnabled(False)
+        self.chat_send_button.setEnabled(False)
+        self.chat_send_button.setToolTip(
+            "Ask the selected AI provider a question grounded in the generated report."
+        )
+        self.chat_input.returnPressed.connect(self._send_chat_question)
+        self.chat_send_button.clicked.connect(self._send_chat_question)
+
+        chat_input_layout = QHBoxLayout()
+        chat_input_layout.addWidget(self.chat_input)
+        chat_input_layout.addWidget(self.chat_send_button)
+
+        chat_widget = QWidget()
+        chat_layout = QVBoxLayout(chat_widget)
+        chat_layout.setContentsMargins(0, 0, 0, 0)
+        chat_layout.addWidget(QLabel("Chat with this AI report"))
+        chat_layout.addWidget(self.chat_transcript)
+        chat_layout.addLayout(chat_input_layout)
+
+        report_splitter = QSplitter(Qt.Orientation.Horizontal)
+        report_splitter.addWidget(self.report_editor)
+        report_splitter.addWidget(chat_widget)
+        report_splitter.setSizes([760, 520])
+
+        report_widget = QWidget()
+        report_layout = QVBoxLayout(report_widget)
+        report_layout.setContentsMargins(6, 6, 6, 6)
+        progress_header = QHBoxLayout()
+        progress_header.addWidget(self.analysis_label, 1)
+        progress_header.addWidget(self.stop_analysis_button)
+        report_layout.addLayout(progress_header)
+        report_layout.addWidget(self.analysis_detail_label)
+        report_layout.addWidget(self.analysis_progress)
+        report_layout.addWidget(report_splitter)
+
         report_dock = QDockWidget("Report", self)
-        report_dock.setWidget(self.report_editor)
+        report_dock.setWidget(report_widget)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, report_dock)
 
     def _choose_import_folder(self) -> None:
@@ -359,12 +467,14 @@ class MainWindow(QMainWindow):
             studies=self._studies,
         )
 
-        worker.signals.finished.connect(self._handle_ai_report_finished)
         worker.signals.finished.connect(
-            lambda _report, active_worker=worker: self._release_worker(active_worker)
+            lambda report, active_worker=worker: self._handle_ai_report_finished(
+                report,
+                active_worker,
+            )
         )
         worker.signals.failed.connect(
-            lambda message, active_worker=worker: self._handle_worker_error(
+            lambda message, active_worker=worker: self._handle_ai_operation_error(
                 message,
                 active_worker,
             )
@@ -372,15 +482,158 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Loading all imported MRI series and generating AI-assisted report..."
         )
+        self._current_ai_worker = worker
+        self._set_ai_busy(
+            True,
+            "Analyzing MRI images and generating the report…",
+            (
+                f"Loading and reviewing {self._mri_series_count()} MRI series with "
+                f"{self._ai_report_service.config.label} ({self._ai_report_service.config.model}). "
+                "The time required depends on the speed of the AI service provider and model."
+            ),
+        )
         self._start_worker(worker)
 
-    def _handle_ai_report_finished(self, report: str) -> None:
+    def _handle_ai_report_finished(
+        self,
+        report: str,
+        worker: AIImportedStudyReportWorker,
+    ) -> None:
+        if worker is not self._current_ai_worker:
+            self._release_worker(worker)
+            return
+        self._release_worker(worker)
+        self._current_ai_worker = None
+        self._set_ai_busy(False)
         report_path = self._save_report(report)
         self._last_report_path = report_path
         self.report_editor.setPlainText(report)
+        self._chat_conversation.clear()
+        self.chat_transcript.clear()
+        self._update_chat_controls()
         self.statusBar().showMessage(
             f"AI-assisted report saved to {report_path.name}. Radiologist review required."
         )
+
+    def _send_chat_question(self) -> None:
+        if self._ai_busy:
+            return
+        report = self.report_editor.toPlainText().strip()
+        question = self.chat_input.text().strip()
+        if not report:
+            QMessageBox.information(
+                self,
+                "AI MRI Analyzer",
+                "Generate an AI report before starting a chat.",
+            )
+            return
+        if not question:
+            return
+        if not self._ai_report_service.is_configured():
+            QMessageBox.information(
+                self,
+                "AI MRI Analyzer",
+                self._ai_report_service.configuration_hint(),
+            )
+            return
+
+        self._pending_chat_question = question
+        self.chat_input.clear()
+        self._render_chat_transcript(pending_question=question)
+        worker = AIChatWorker(
+            service=self._ai_report_service,
+            report=report,
+            question=question,
+            conversation=list(self._chat_conversation),
+        )
+        worker.signals.finished.connect(
+            lambda answer, active_worker=worker: self._handle_chat_finished(
+                answer,
+                active_worker,
+            )
+        )
+        worker.signals.failed.connect(
+            lambda message, active_worker=worker: self._handle_ai_operation_error(
+                message,
+                active_worker,
+            )
+        )
+        self._current_ai_worker = worker
+        self._set_ai_busy(
+            True,
+            "AI is reviewing the report and preparing an answer…",
+            (
+                f"Sending your report-grounded question to {self._ai_report_service.config.label} "
+                f"({self._ai_report_service.config.model}). The time required depends on the "
+                "speed of the AI service provider and model."
+            ),
+        )
+        self.statusBar().showMessage("Answering your question about the AI report...")
+        self._start_worker(worker)
+
+    def _handle_chat_finished(self, answer: str, worker: AIChatWorker) -> None:
+        if worker is not self._current_ai_worker:
+            self._release_worker(worker)
+            return
+        self._release_worker(worker)
+        self._current_ai_worker = None
+        question = self._pending_chat_question
+        self._pending_chat_question = ""
+        self._chat_conversation.append((question, answer))
+        self._render_chat_transcript()
+        self._set_ai_busy(False)
+        self.statusBar().showMessage(
+            "AI response ready. Medical decisions still require a qualified clinician."
+        )
+
+    def _render_chat_transcript(self, pending_question: str = "") -> None:
+        messages: list[str] = []
+        for question, answer in self._chat_conversation:
+            messages.extend([f"You\n{question}", f"AI\n{answer}"])
+        if pending_question:
+            messages.extend([f"You\n{pending_question}", "AI\nAnalyzing…"])
+        self.chat_transcript.setPlainText("\n\n".join(messages))
+        scroll_bar = self.chat_transcript.verticalScrollBar()
+        scroll_bar.setValue(scroll_bar.maximum())
+
+    def _set_ai_busy(self, busy: bool, message: str = "", detail: str = "") -> None:
+        self._ai_busy = busy
+        self.analysis_label.setText(message or "AI analysis in progress…")
+        self.analysis_detail_label.setText(detail)
+        self.analysis_label.setVisible(busy)
+        self.analysis_detail_label.setVisible(busy)
+        self.analysis_progress.setVisible(busy)
+        self.stop_analysis_button.setVisible(busy)
+        self.ai_report_action.setEnabled(not busy)
+        self._update_chat_controls()
+
+    def _stop_ai_operation(self) -> None:
+        worker = self._current_ai_worker
+        if worker is None:
+            return
+        worker.cancel()
+        self._release_worker(worker)
+        self._current_ai_worker = None
+        self._pending_chat_question = ""
+        self._render_chat_transcript()
+        self._set_ai_busy(False)
+        self.statusBar().showMessage(
+            "AI analysis stopped. A cancellation signal was sent to the AI service provider."
+        )
+
+    def _apply_theme(self, theme: str) -> None:
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(DARK_THEME if theme == "dark" else LIGHT_THEME)
+        self._settings.save_theme(theme)
+        self.light_theme_action.setChecked(theme == "light")
+        self.dark_theme_action.setChecked(theme == "dark")
+        self.statusBar().showMessage(f"{theme.title()} theme applied.")
+
+    def _update_chat_controls(self) -> None:
+        can_chat = bool(self.report_editor.toPlainText().strip()) and not self._ai_busy
+        self.chat_input.setEnabled(can_chat)
+        self.chat_send_button.setEnabled(can_chat)
 
     def _save_report_as(self) -> None:
         report = self.report_editor.toPlainText().strip()
@@ -525,6 +778,16 @@ class MainWindow(QMainWindow):
 
     def _handle_worker_error(self, message: str, worker: Worker) -> None:
         self._release_worker(worker)
+        self._show_error(message)
+
+    def _handle_ai_operation_error(self, message: str, worker: Worker) -> None:
+        self._release_worker(worker)
+        if worker is not self._current_ai_worker:
+            return
+        self._current_ai_worker = None
+        self._pending_chat_question = ""
+        self._render_chat_transcript()
+        self._set_ai_busy(False)
         self._show_error(message)
 
     def _save_report(self, report: str) -> Path:
