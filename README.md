@@ -86,14 +86,18 @@ Reports are autosaved to:
 ```bash
 uv sync --extra packaging
 uv run python scripts/generate_icon.py
-uv run python scripts/package_pyinstaller.py
+uv run --isolated --extra packaging python scripts/package_pyinstaller.py
 ```
 
 The packaged macOS app will be created at:
 
 ```text
 dist/AI MRI Analyzer.app
+dist/AI-MRI-Analyzer-macOS-arm64-v0.1.0.zip
 ```
+
+The default build is ad-hoc signed. Set `MEDREPORT_CODESIGN_IDENTITY` to a Developer ID
+Application identity when preparing a notarized public distribution.
 
 ## Development
 

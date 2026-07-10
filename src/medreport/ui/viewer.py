@@ -112,7 +112,7 @@ class ImageViewer(QGraphicsView):
         image = self.current_image()
         if image is None:
             return False
-        return image.save(str(path), "JPEG", 95)
+        return bool(image.save(str(path), b"JPEG", 95))
 
     def export_pdf(self, path: Path) -> bool:
         """Export the current rendered image as a single-page PDF."""

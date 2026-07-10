@@ -623,7 +623,7 @@ class MainWindow(QMainWindow):
 
     def _apply_theme(self, theme: str) -> None:
         application = QApplication.instance()
-        if application is not None:
+        if isinstance(application, QApplication):
             application.setStyleSheet(DARK_THEME if theme == "dark" else LIGHT_THEME)
         self._settings.save_theme(theme)
         self.light_theme_action.setChecked(theme == "light")
