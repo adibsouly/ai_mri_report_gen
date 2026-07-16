@@ -28,6 +28,7 @@ DEFAULT_LM_STUDIO_MODEL = "local-model"
 DEFAULT_LM_STUDIO_BASE_URL = "http://localhost:1234/v1"
 DEFAULT_OLLAMA_MODEL = "llava"
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_MEDGEMMA_MODEL = "medgemma-1.5"
 DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-latest"
 DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_GROK_MODEL = "grok-2-vision-latest"
@@ -40,6 +41,53 @@ DEFAULT_APPLE_INTELLIGENCE_MODEL = "on-device"
 MAX_REPORT_IMAGES = 4
 MAX_STUDY_REPORT_IMAGES = 6
 MAX_CANDIDATE_SLICES_PER_SERIES = 24
+
+NEURORADIOLOGY_REPORT_PROTOCOL = """
+Act as an educational neuroradiology analysis system using the systematic workflow and formal
+terminology of an experienced MRI reader. Deliver a deep, complete, evidence-backed analysis;
+do not reduce detail, skip categories, or withhold relevant imaging findings because the use
+case is educational. For a brain, head, pituitary, or other neuro MRI, follow this strict
+order. For every requested structure that cannot be assessed from the supplied images or is
+not relevant to the exam, write "Not visualized or N/A" rather than omitting it.
+
+I. Technical Assessment
+- Sequence verification: identify only sequences that the metadata or images support (for
+  example T1, T2, FLAIR, DWI, ADC, susceptibility, MRA/MRV, or post-contrast T1). Do not
+  infer unavailable sequences.
+- Image quality: identify motion, metal, susceptibility, incomplete coverage, or other
+  artifacts and their diagnostic impact.
+
+II. Systematic Anatomical Review
+- For each positive finding, provide location, morphology, signal characteristics relative
+  to appropriate reference tissue, approximate size only when supportable, mass effect, and
+  enhancement pattern only when contrast images are actually available.
+- Brain parenchyma: gray-white differentiation, cortex, deep gray nuclei, white matter,
+  posterior fossa, brainstem, and focal/diffuse signal abnormality.
+- Ventricular system and CSF spaces: symmetry, hydrocephalus, obstruction when assessable,
+  sulci, cisterns, and midline shift.
+- Intracranial vasculature: expected major-vessel flow voids and any possible abnormal signal;
+  assess thrombosis or aneurysm only when the supplied sequences support that assessment.
+- Sella, parasellar region, skull base, orbits, paranasal sinuses, mastoid air cells, and
+  extra-axial spaces, including collection or leptomeningeal abnormality when assessable.
+
+III. Synthesis and Reporting
+Return a comprehensive, polished Markdown report on the first response with these headings:
+1. Summary of Findings — concise high-level synthesis.
+2. Detailed Findings — use the technical and anatomical categories above.
+3. Targeted Injury / Problem Assessment — address the clinical context without anchoring on it.
+4. Differential Diagnosis — only when an abnormality is detected; prioritize plausible
+   etiologies and clearly label uncertainty.
+5. Recommendations — appropriate imaging follow-up, additional sequences, comparison imaging,
+   or clinical correlation when supported by the findings.
+6. Limitations and Confidence — explicitly state the effect of representative slice sampling.
+
+Use formal imaging terminology. Link observations to available sequence evidence (for example,
+"T2/FLAIR hyperintensity, with no corresponding T1 abnormality in the supplied images") only
+when supported. Describe ambiguous findings as non-specific. Do not fabricate measurements,
+comparisons, contrast enhancement, sequences, or unvisualized anatomy. Include relevant normal
+and negative findings as well as positive findings, and explain the imaging basis for each
+meaningful conclusion.
+""".strip()
 
 
 class ResponsesClient(Protocol):
@@ -54,6 +102,7 @@ class AIProvider(StrEnum):
     LM_STUDIO = "lm_studio"
     OPENAI = "openai"
     OLLAMA = "ollama"
+    MEDGEMMA = "medgemma"
     CLAUDE = "claude"
     GROK = "grok"
     GEMINI = "gemini"
@@ -101,6 +150,13 @@ PROVIDER_DEFAULTS: dict[AIProvider, AIProviderDefaults] = {
         api_key="ollama",
         needs_api_key=False,
     ),
+    AIProvider.MEDGEMMA: AIProviderDefaults(
+        label="MedGemma 1.5 (Offline)",
+        model=DEFAULT_MEDGEMMA_MODEL,
+        base_url=DEFAULT_OLLAMA_BASE_URL,
+        api_key="ollama",
+        needs_api_key=False,
+    ),
     AIProvider.CLAUDE: AIProviderDefaults(
         label="Claude",
         model=DEFAULT_CLAUDE_MODEL,
@@ -135,6 +191,7 @@ PROVIDER_DEFAULTS: dict[AIProvider, AIProviderDefaults] = {
 OPENAI_COMPATIBLE_PROVIDERS = {
     AIProvider.LM_STUDIO,
     AIProvider.OLLAMA,
+    AIProvider.MEDGEMMA,
     AIProvider.GROK,
     AIProvider.VLLM,
 }
@@ -205,7 +262,7 @@ class AIStudyReportRequest:
 
 
 class AIReportService:
-    """Generate clinician-reviewable radiology report drafts from MRI slices."""
+    """Generate detailed educational radiology analyses from MRI slices."""
 
     def __init__(
         self,
@@ -283,6 +340,12 @@ class AIReportService:
                 "Start Ollama, pull a vision-capable model, and keep the local API running at "
                 f"{self._config.base_url or DEFAULT_OLLAMA_BASE_URL}."
             )
+        if self._config.provider is AIProvider.MEDGEMMA:
+            return (
+                "Choose AI Config, select MedGemma 1.5 (Offline), and use Set up Offline "
+                "MedGemma to install the licensed model. Keep Ollama running at "
+                f"{self._config.base_url or DEFAULT_OLLAMA_BASE_URL}."
+            )
         if self._config.provider is AIProvider.VLLM:
             return (
                 "Start a vLLM OpenAI-compatible server with a vision-capable model at "
@@ -349,11 +412,11 @@ class AIReportService:
             for user_message, assistant_message in (conversation or [])[-6:]
         )
         prompt = (
-            "You are helping a user understand an AI-assisted MRI report draft. "
+            "You are helping a user deeply understand an educational MRI analysis. "
             "Answer only from the report and conversation supplied below. Explain medical "
             "language clearly, distinguish report statements from general information, and "
-            "do not invent findings. Remind the user to consult a qualified clinician when "
-            "the question involves diagnosis, urgency, treatment, or next steps.\n\n"
+            "do not invent findings. Give a complete, direct answer and identify only the "
+            "image or sequence limitations that materially affect the answer.\n\n"
             f"REPORT DRAFT:\n{clean_report}\n\n"
         )
         if history:
@@ -660,20 +723,17 @@ def _encode_slices(volume: ImageVolume, indexes: list[int]) -> list[str]:
 def _build_report_prompt(series: Series, clinical_context: str) -> str:
     context = clinical_context.strip() or "No additional clinical history was provided."
     return f"""
-You are assisting a radiologist by drafting a detailed MRI report from representative
-image slices and DICOM metadata. This is not a final diagnosis. Be careful, specific,
-and transparent about uncertainty.
+Generate a detailed educational MRI analysis from representative image slices and DICOM
+metadata. Be specific, comprehensive, and transparent about image evidence.
 
-Create a structured report with:
-- Exam
-- Technique
-- Image Quality / Limitations
-- Findings by anatomy
-- Impression
-- Confidence and recommended radiologist review points
+{NEURORADIOLOGY_REPORT_PROTOCOL}
 
-Do not invent findings that are not visible. If the provided slice sample is incomplete,
-state that limitation. Avoid urgent clinical directives unless the image evidence is clear.
+Systematically inspect the visible anatomy for injuries and other abnormalities that could
+explain the supplied clinical context, including when applicable fracture, marrow edema,
+ligament/tendon or muscle injury, meniscal/labral/cartilage abnormality, joint effusion,
+soft-tissue swelling, disc/nerve abnormality, or mass. Do not anchor on the history and do
+not invent findings that are not visible. For non-neuro MRI, use the same rigorous structure
+but review the relevant regional anatomy rather than forcing brain-specific categories.
 
 Series metadata:
 - Modality: {series.modality}
@@ -700,21 +760,18 @@ def _build_study_report_prompt(
         for index, series_volume in enumerate(series_volumes)
     )
     return f"""
-You are assisting a radiologist by drafting a detailed MRI report from representative
-image slices sampled across all imported MRI series and their DICOM metadata. This is
-not a final diagnosis. Be careful, specific, and transparent about uncertainty.
+Generate a detailed educational MRI analysis from representative image slices sampled across
+all imported MRI series and their DICOM metadata. Be specific, comprehensive, and transparent
+about image evidence.
 
-Create a structured report with:
-- Exam
-- Technique
-- Image Quality / Limitations
-- Findings by anatomy
-- Impression
-- Confidence and recommended radiologist review points
+{NEURORADIOLOGY_REPORT_PROTOCOL}
 
-Correlate findings across the provided series when possible. Do not invent findings
-that are not visible. If the provided slice sample is incomplete, state that limitation.
-Avoid urgent clinical directives unless the image evidence is clear.
+Correlate findings across the provided series when possible. Systematically inspect the
+visible anatomy for injuries and other abnormalities that could explain the supplied
+clinical context, while avoiding anchoring on it. Do not invent findings that are not
+visible. If the provided slice sample is incomplete, state that limitation. For non-neuro MRI,
+use the same rigorous structure but review the relevant regional anatomy rather than forcing
+brain-specific categories.
 
 Imported MRI series:
 {series_lines}

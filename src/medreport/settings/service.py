@@ -17,7 +17,18 @@ class SettingsService:
     """Persist user preferences through QSettings."""
 
     def __init__(self) -> None:
-        self._settings = QSettings("AI MRI Analyzer", "AI MRI Analyzer")
+        self._settings = QSettings("DecodeMRI", "DecodeMRI")
+        self._migrate_legacy_settings()
+
+    def _migrate_legacy_settings(self) -> None:
+        """Carry forward preferences for users upgrading from the old app name."""
+
+        if self._settings.allKeys():
+            return
+        legacy_settings = QSettings("AI MRI Analyzer", "AI MRI Analyzer")
+        for key in legacy_settings.allKeys():
+            self._settings.setValue(key, legacy_settings.value(key))
+        self._settings.sync()
 
     def window_size(self, default: QSize) -> QSize:
         """Return the saved main window size."""
@@ -42,6 +53,21 @@ class SettingsService:
         if theme not in {"light", "dark"}:
             raise ValueError(f"Unsupported theme: {theme}")
         self._settings.setValue("appearance/theme", theme)
+
+    def has_ai_provider_config(self) -> bool:
+        """Return whether the user has already selected an AI provider."""
+
+        return self._settings.contains("ai/provider")
+
+    def has_completed_welcome(self) -> bool:
+        """Return whether the one-time product introduction was already shown."""
+
+        return bool(self._settings.value("onboarding/welcome_completed", False, type=bool))
+
+    def mark_welcome_completed(self) -> None:
+        """Persist completion of the one-time product introduction."""
+
+        self._settings.setValue("onboarding/welcome_completed", True)
 
     def add_recent_folder(self, folder: Path) -> None:
         """Store a recent import folder."""

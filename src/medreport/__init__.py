@@ -1,4 +1,4 @@
-"""AI MRI Analyzer medical imaging workstation."""
+"""DecodeMRI medical imaging workstation."""
 
 __all__ = ["__version__"]
 

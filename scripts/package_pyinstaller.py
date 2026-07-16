@@ -1,4 +1,4 @@
-"""Build a standalone AI MRI Analyzer app with PyInstaller."""
+"""Build a standalone DecodeMRI app with PyInstaller."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-APP_NAME = "AI MRI Analyzer"
+APP_NAME = "DecodeMRI"
 APP_PATH = Path("dist") / f"{APP_NAME}.app"
 
 
@@ -47,7 +47,7 @@ def main() -> int:
         "--noconfirm",
         "--clean",
         "--osx-bundle-identifier",
-        "com.adibsouly.aimrianalyzer",
+        "com.adibsouly.decodemri",
         "--icon",
         icon_path,
         "--add-data",
@@ -68,7 +68,7 @@ def main() -> int:
         check=True,
     )
 
-    archive_path = Path("dist") / f"AI-MRI-Analyzer-macOS-arm64-v{version}.zip"
+    archive_path = Path("dist") / f"DecodeMRI-macOS-arm64-v{version}.zip"
     archive_path.unlink(missing_ok=True)
     subprocess.run(
         [

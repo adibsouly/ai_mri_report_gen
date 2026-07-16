@@ -1,4 +1,4 @@
-"""Qt stylesheets for AI MRI Analyzer."""
+"""Qt stylesheets for DecodeMRI."""
 
 LIGHT_THEME = """
 QMainWindow, QWidget {

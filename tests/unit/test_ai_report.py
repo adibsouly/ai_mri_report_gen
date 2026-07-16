@@ -94,6 +94,7 @@ def test_all_requested_ai_providers_are_registered() -> None:
         AIProvider.LM_STUDIO,
         AIProvider.OPENAI,
         AIProvider.OLLAMA,
+        AIProvider.MEDGEMMA,
         AIProvider.CLAUDE,
         AIProvider.GROK,
         AIProvider.GEMINI,
@@ -189,7 +190,12 @@ def test_ai_report_service_sends_text_and_images() -> None:
     )
 
     report = service.generate_mri_report(
-        AIReportRequest(series=series, volume=volume, max_images=2)
+        AIReportRequest(
+            series=series,
+            volume=volume,
+            clinical_context="Twisting knee injury; lateral pain for two weeks.",
+            max_images=2,
+        )
     )
 
     assert "MRI Report" in report
@@ -197,6 +203,11 @@ def test_ai_report_service_sends_text_and_images() -> None:
     assert client.responses.payload["model"] == "test-model"
     content = client.responses.payload["input"][0]["content"]
     assert content[0]["type"] == "input_text"
+    assert "Sequence verification" in content[0]["text"]
+    assert "Not visualized or N/A" in content[0]["text"]
+    assert "Differential Diagnosis" in content[0]["text"]
+    assert "do not reduce detail" in content[0]["text"]
+    assert "Twisting knee injury" in content[0]["text"]
     assert content[1]["type"] == "input_image"
     assert str(content[1]["image_url"]).startswith("data:image/png;base64,")
 

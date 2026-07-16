@@ -21,11 +21,11 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AI-MRI-Analyzer-macOS
-          path: dist/AI-MRI-Analyzer-macOS-arm64-v*.zip
+          name: DecodeMRI-macOS
+          path: dist/DecodeMRI-macOS-arm64-v*.zip
           if-no-files-found: error
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/AI-MRI-Analyzer-macOS-arm64-v*.zip --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/DecodeMRI-macOS-arm64-v*.zip --title "$GITHUB_REF_NAME" --generate-notes

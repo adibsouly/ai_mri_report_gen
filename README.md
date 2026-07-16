@@ -1,6 +1,6 @@
-# AI MRI Report Gen
+# DecodeMRI
 
-AI MRI Report Gen is a local-first desktop workstation for importing DICOM MRI studies
+DecodeMRI is a local-first desktop workstation for importing DICOM MRI studies
 and generating clinician-reviewable AI report drafts. It is built with Python 3.12,
 PySide6, pydicom, SimpleITK, and configurable AI provider connections.
 
@@ -34,7 +34,7 @@ git clone https://github.com/adibsouly/ai_mri_report_gen.git
 cd ai_mri_report_gen
 uv sync --extra dev
 uv run python scripts/generate_icon.py
-uv run medreport
+uv run decode-mri
 ```
 
 ## LM Studio Setup
@@ -55,6 +55,10 @@ where required, then save. Defaults:
   Apple Intelligence-capable Mac with Apple Intelligence enabled
 - `OpenAI`: API key required, model `gpt-5.5`
 - `Ollama`: `http://localhost:11434/v1`, model `llava`
+- `MedGemma 1.5 (Offline)`: choose **Set up Offline MedGemma** in AI Config. The installer
+  uses Ollama's public MedGemma reference, which downloads both the model and required vision
+  projector without a Hugging Face account or token, then registers it as `medgemma-1.5`.
+  This model is for research/development and clinician-reviewed draft assistance only.
 - `Claude`: API key required, `https://api.anthropic.com/v1`
 - `Grok`: API key required, `https://api.x.ai/v1`
 - `Gemini`: API key required, `https://generativelanguage.googleapis.com/v1beta`
@@ -66,7 +70,7 @@ You can also use environment variables:
 export MEDREPORT_AI_PROVIDER=openai
 export OPENAI_API_KEY="your_key"
 export MEDREPORT_OPENAI_MODEL="gpt-5.5"
-uv run medreport
+uv run decode-mri
 ```
 
 ## Use
@@ -79,7 +83,7 @@ uv run medreport
 Reports are autosaved to:
 
 ```text
-~/Library/Application Support/AI MRI Analyzer/reports/
+~/Library/Application Support/DecodeMRI/reports/
 ```
 
 ## Build The App
@@ -93,8 +97,8 @@ uv run --isolated --extra packaging python scripts/package_pyinstaller.py
 The packaged macOS app will be created at:
 
 ```text
-dist/AI MRI Analyzer.app
-dist/AI-MRI-Analyzer-macOS-arm64-v0.1.0.zip
+dist/DecodeMRI.app
+dist/DecodeMRI-macOS-arm64-v0.1.0.zip
 ```
 
 The default build is ad-hoc signed. Set `MEDREPORT_CODESIGN_IDENTITY` to a Developer ID
@@ -103,7 +107,7 @@ Application identity when preparing a notarized public distribution.
 ## Downloadable macOS Releases
 
 Pushing a version tag such as `v0.1.0` starts the macOS release workflow. It builds
-the app on a macOS runner and publishes `AI-MRI-Analyzer-macOS-arm64-v0.1.0.zip` to
+the app on a macOS runner and publishes `DecodeMRI-macOS-arm64-v0.1.0.zip` to
 the matching GitHub Release, where users can download it directly. The same ZIP is
 also retained as an Actions artifact for each workflow run.
 

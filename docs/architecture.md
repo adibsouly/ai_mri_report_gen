@@ -1,6 +1,6 @@
 # Architecture
 
-AI MRI Analyzer uses Clean Architecture to protect medical imaging workflows from UI and
+DecodeMRI uses Clean Architecture to protect medical imaging workflows from UI and
 infrastructure churn.
 
 ```mermaid

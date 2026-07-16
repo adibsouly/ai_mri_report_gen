@@ -16,7 +16,7 @@ from medreport.settings.service import SettingsService
 from medreport.ui.main_window import MainWindow
 from medreport.ui.theme import DARK_THEME, LIGHT_THEME
 
-APP_DISPLAY_NAME = "AI MRI Analyzer"
+APP_DISPLAY_NAME = "DecodeMRI"
 
 
 def app_data_dir() -> Path:
@@ -26,7 +26,7 @@ def app_data_dir() -> Path:
 
 
 def main() -> int:
-    """Start the AI MRI Analyzer desktop application."""
+    """Start the DecodeMRI desktop application."""
 
     data_dir = app_data_dir()
     configure_logging(data_dir / "logs")
@@ -36,7 +36,7 @@ def main() -> int:
     application = QApplication(sys.argv)
     application.setApplicationName(APP_DISPLAY_NAME)
     application.setApplicationDisplayName(APP_DISPLAY_NAME)
-    application.setOrganizationName("AI MRI Analyzer")
+    application.setOrganizationName(APP_DISPLAY_NAME)
     settings = SettingsService()
     application.setStyleSheet(DARK_THEME if settings.theme() == "dark" else LIGHT_THEME)
 

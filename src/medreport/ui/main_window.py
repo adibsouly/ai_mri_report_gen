@@ -1,18 +1,20 @@
-"""Main Qt window for AI MRI Analyzer."""
+"""Main Qt window for DecodeMRI."""
 
 from __future__ import annotations
 
+import platform
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThreadPool
+from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -34,12 +36,19 @@ from PySide6.QtWidgets import (
 from medreport.app.services import StudyImportService, VolumeService
 from medreport.database.sqlite import SQLiteDatabase
 from medreport.models import ImageVolume, Series, Study
-from medreport.reports.ai_report import AIReportService
+from medreport.reports.ai_report import (
+    PROVIDER_DEFAULTS,
+    AIProvider,
+    AIProviderConfig,
+    AIReportService,
+)
 from medreport.reports.pdf import save_markdown_pdf
 from medreport.settings.service import SettingsService
 from medreport.ui.ai_config_dialog import AIConfigDialog
+from medreport.ui.medgemma_setup_dialog import MedGemmaSetupDialog
 from medreport.ui.theme import DARK_THEME, LIGHT_THEME
 from medreport.ui.viewer import ImageViewer
+from medreport.ui.welcome_dialog import WelcomeDialog
 from medreport.ui.workers import (
     AIChatWorker,
     AIImportedStudyReportWorker,
@@ -83,6 +92,7 @@ class MainWindow(QMainWindow):
         self._pending_chat_question = ""
         self._ai_busy = False
         self._current_ai_worker: AIImportedStudyReportWorker | AIChatWorker | None = None
+        self._offline_setup_dialog: MedGemmaSetupDialog | None = None
 
         self.viewer = ImageViewer()
         self.study_tree = QTreeWidget()
@@ -99,6 +109,7 @@ class MainWindow(QMainWindow):
         self._build_window()
         self._build_actions()
         self._build_docks()
+        QTimer.singleShot(0, self._show_first_run_welcome)
 
     def closeEvent(self, event: object) -> None:
         """Persist window size before closing."""
@@ -107,7 +118,7 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def _build_window(self) -> None:
-        self.setWindowTitle("AI MRI Analyzer")
+        self.setWindowTitle("DecodeMRI")
         icon_path = _asset_path("icons/medreport_icon.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -116,16 +127,16 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
     def _build_actions(self) -> None:
-        open_action = QAction("Import Folder", self)
+        open_action = QAction("Import MRI", self)
         open_action.triggered.connect(self._choose_import_folder)
 
-        self.ai_report_action = QAction("Generate AI Report", self)
+        self.ai_report_action = QAction("Decode MRI", self)
         self.ai_report_action.triggered.connect(self._generate_ai_report)
 
         save_report_action = QAction("Save Report As...", self)
         save_report_action.triggered.connect(self._save_report_as)
 
-        ai_config_action = QAction("AI Config...", self)
+        ai_config_action = QAction("Config AI...", self)
         ai_config_action.triggered.connect(self._open_ai_config)
 
         about_me_action = QAction("About Me", self)
@@ -166,7 +177,7 @@ class MainWindow(QMainWindow):
 
         action_descriptions = {
             open_action: "Import a folder containing DICOM MRI images.",
-            self.ai_report_action: "Analyze the imported MRI study and generate an AI report.",
+            self.ai_report_action: "Analyze the imported MRI study and generate a report draft.",
             save_report_action: "Save the current report draft to a file.",
             ai_config_action: "Choose and configure the AI service provider and model.",
             about_me_action: "Show information and safety guidance about this app.",
@@ -196,7 +207,7 @@ class MainWindow(QMainWindow):
         report_menu.addAction(self.ai_report_action)
         report_menu.addAction(save_report_action)
 
-        ai_menu = self.menuBar().addMenu("AI Config")
+        ai_menu = self.menuBar().addMenu("Config AI")
         ai_menu.addAction(ai_config_action)
 
         customize_menu = self.menuBar().addMenu("Customize")
@@ -226,6 +237,32 @@ class MainWindow(QMainWindow):
         ]:
             viewer_toolbar.addAction(action)
         self.addToolBar(viewer_toolbar)
+
+    def _show_first_run_welcome(self) -> None:
+        """Show first-run guidance and default compatible Macs to offline AI."""
+
+        if self._settings.has_completed_welcome():
+            return
+        use_offline_default = (
+            _has_apple_silicon_gpu() and not self._settings.has_ai_provider_config()
+        )
+        WelcomeDialog(offline_setup_available=use_offline_default, parent=self).exec()
+        self._settings.mark_welcome_completed()
+        if not use_offline_default:
+            return
+        defaults = PROVIDER_DEFAULTS[AIProvider.MEDGEMMA]
+        config = AIProviderConfig(
+            provider=AIProvider.MEDGEMMA,
+            model=defaults.model,
+            base_url=defaults.base_url,
+            api_key=defaults.api_key,
+        )
+        self._settings.save_ai_provider_config(config)
+        self._ai_report_service.update_config(config)
+        self.statusBar().showMessage("Offline MedGemma selected. Downloading the local model…")
+        self._offline_setup_dialog = MedGemmaSetupDialog(self)
+        self._offline_setup_dialog.show()
+        self._offline_setup_dialog.start_install()
 
     def _build_docks(self) -> None:
         self.study_tree.setHeaderLabels(["Study Explorer"])
@@ -447,14 +484,14 @@ class MainWindow(QMainWindow):
         if not self._studies:
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 "Import a DICOM MRI folder before generating a report.",
             )
             return
         if not self._ai_report_service.is_configured():
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 self._ai_report_service.configuration_hint(),
             )
             return
@@ -462,15 +499,27 @@ class MainWindow(QMainWindow):
         if self._mri_series_count() == 0:
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 "No MRI series were found in the imported DICOM studies.",
             )
             return
+
+        clinical_context, _ = QInputDialog.getMultiLineText(
+            self,
+            "Clinical Context (Optional)",
+            (
+                "Add any helpful educational-analysis context: pain location, "
+                "injury mechanism, when symptoms began, prior injury or surgery, and relevant "
+                "history. This is optional: leave it blank or choose Cancel to continue without "
+                "context. Do not include identifying information."
+            ),
+        )
 
         worker = AIImportedStudyReportWorker(
             volume_service=self._volume_service,
             report_service=self._ai_report_service,
             studies=self._studies,
+            clinical_context=clinical_context,
         )
 
         worker.signals.finished.connect(
@@ -518,7 +567,7 @@ class MainWindow(QMainWindow):
         self.chat_transcript.clear()
         self._update_chat_controls()
         self.statusBar().showMessage(
-            f"AI-assisted report saved to {report_path.name}. Radiologist review required."
+            f"Detailed MRI analysis saved to {report_path.name}."
         )
 
     def _send_chat_question(self) -> None:
@@ -529,7 +578,7 @@ class MainWindow(QMainWindow):
         if not report:
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 "Generate an AI report before starting a chat.",
             )
             return
@@ -538,7 +587,7 @@ class MainWindow(QMainWindow):
         if not self._ai_report_service.is_configured():
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 self._ai_report_service.configuration_hint(),
             )
             return
@@ -589,7 +638,7 @@ class MainWindow(QMainWindow):
         self._render_chat_transcript()
         self._set_ai_busy(False)
         self.statusBar().showMessage(
-            "AI response ready. Medical decisions still require a qualified clinician."
+            "Detailed MRI analysis response ready."
         )
 
     def _render_chat_transcript(self, pending_question: str = "") -> None:
@@ -646,7 +695,7 @@ class MainWindow(QMainWindow):
         if not report:
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 "No report is available to save yet.",
             )
             return
@@ -710,7 +759,7 @@ class MainWindow(QMainWindow):
         if not self.viewer.has_image:
             QMessageBox.information(
                 self,
-                "AI MRI Analyzer",
+                "DecodeMRI",
                 "Load an image before exporting.",
             )
             return
@@ -740,11 +789,11 @@ class MainWindow(QMainWindow):
     def _show_about_me(self) -> None:
         QMessageBox.about(
             self,
-            "About AI MRI Analyzer",
+            "About DecodeMRI",
             (
-                "<b>AI MRI Analyzer</b><br><br>"
+                "<b>DecodeMRI</b><br><br>"
                 "Created by Adib Souly, the main developer of this app.<br><br>"
-                "I built AI MRI Analyzer to help patients explore their MRI studies, "
+                "I built DecodeMRI to help patients explore their MRI studies, "
                 "ask better questions, and understand AI-assisted analysis in a more "
                 "accessible way.<br><br>"
                 "<b>Important:</b> This app is not medical-grade software and is not "
@@ -783,7 +832,7 @@ class MainWindow(QMainWindow):
 
     def _show_error(self, message: str) -> None:
         self.statusBar().showMessage("Error")
-        QMessageBox.critical(self, "AI MRI Analyzer", message)
+        QMessageBox.critical(self, "DecodeMRI", message)
 
     def _start_worker(self, worker: Worker) -> None:
         self._active_workers.add(worker)
@@ -844,6 +893,12 @@ def empty_widget() -> QWidget:
     """Return an empty QWidget for tests or layout placeholders."""
 
     return QWidget()
+
+
+def _has_apple_silicon_gpu() -> bool:
+    """Return whether this macOS host has the integrated Apple Silicon GPU path."""
+
+    return sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}
 
 
 def _asset_path(relative_path: str) -> Path:

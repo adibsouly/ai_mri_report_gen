@@ -1,4 +1,4 @@
-"""Desktop launcher for AI MRI Analyzer."""
+"""Desktop launcher for DecodeMRI."""
 
 from medreport.app.main import main
 

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLineEdit,
+    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -18,6 +19,7 @@ from medreport.reports.ai_report import (
     AIProvider,
     AIProviderConfig,
 )
+from medreport.ui.medgemma_setup_dialog import MedGemmaSetupDialog
 
 
 class AIConfigDialog(QDialog):
@@ -43,6 +45,8 @@ class AIConfigDialog(QDialog):
         self.model_edit = QLineEdit()
         self.base_url_edit = QLineEdit()
         self.api_key_edit = QLineEdit()
+        self.medgemma_setup_button = QPushButton("Set up Offline MedGemma…")
+        self.medgemma_setup_button.clicked.connect(self._open_medgemma_setup)
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         fields = [self.provider_combo, self.model_edit, self.base_url_edit, self.api_key_edit]
         for field in fields:
@@ -77,6 +81,7 @@ class AIConfigDialog(QDialog):
         form.addRow("Model", self.model_edit)
         form.addRow("Base URL", self.base_url_edit)
         form.addRow("API Key", self.api_key_edit)
+        form.addRow("Offline model", self.medgemma_setup_button)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -97,9 +102,11 @@ class AIConfigDialog(QDialog):
     def _apply_config(self, config: AIProviderConfig) -> None:
         defaults = PROVIDER_DEFAULTS[config.provider]
         is_apple_intelligence = config.provider is AIProvider.APPLE_INTELLIGENCE
+        is_medgemma = config.provider is AIProvider.MEDGEMMA
         self.base_url_edit.setEnabled(defaults.base_url is not None)
         self.model_edit.setEnabled(not is_apple_intelligence)
         self.api_key_edit.setEnabled(not is_apple_intelligence)
+        self.medgemma_setup_button.setVisible(is_medgemma)
         self.model_edit.setText(config.model)
         self.base_url_edit.setText(config.base_url or "")
         self.api_key_edit.setText(config.api_key)
@@ -111,3 +118,6 @@ class AIConfigDialog(QDialog):
         )
         self._active_provider = provider
         self._apply_config(self._provider_configs[provider])
+
+    def _open_medgemma_setup(self) -> None:
+        MedGemmaSetupDialog(self).exec()

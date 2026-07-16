@@ -1,10 +1,10 @@
 [project]
-name = "medreport"
+name = "decode-mri"
 version = "0.1.1"
 description = "AI-powered desktop medical imaging workstation built with PySide6."
 readme = "README.md"
 authors = [
-    { name = "MedReport Contributors" }
+    { name = "DecodeMRI Contributors" }
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -32,7 +32,7 @@ packaging = [
 ]
 
 [project.scripts]
-medreport = "medreport.app.main:main"
+decode-mri = "medreport.app.main:main"
 
 [build-system]
 requires = ["uv_build>=0.9.21,<0.10.0"]
@@ -40,6 +40,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = "src"
+module-name = "medreport"
 
 [tool.ruff]
 line-length = 100

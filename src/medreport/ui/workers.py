@@ -155,6 +155,7 @@ class AIImportedStudyReportWorker(QRunnable):
         volume_service: VolumeService,
         report_service: AIReportService,
         studies: list[Study],
+        clinical_context: str = "",
     ) -> None:
         super().__init__()
         self.setAutoDelete(False)
@@ -162,6 +163,7 @@ class AIImportedStudyReportWorker(QRunnable):
         self._volume_service = volume_service
         self._report_service = report_service
         self._studies = studies
+        self._clinical_context = clinical_context
         self._cancelled = threading.Event()
 
     def cancel(self) -> None:
@@ -188,7 +190,10 @@ class AIImportedStudyReportWorker(QRunnable):
             if self._cancelled.is_set():
                 return
             report = self._report_service.generate_study_mri_report(
-                AIStudyReportRequest(series_volumes=series_volumes)
+                AIStudyReportRequest(
+                    series_volumes=series_volumes,
+                    clinical_context=self._clinical_context,
+                )
             )
         except Exception as exc:
             if not self._cancelled.is_set():
