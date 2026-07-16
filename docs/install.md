@@ -3,8 +3,8 @@
 ## Quick Start From Source
 
 ```bash
-git clone https://github.com/adibsouly/ai_mri_report_gen.git
-cd ai_mri_report_gen
+git clone https://github.com/adibsouly/DecodeMRI.git
+cd DecodeMRI
 uv sync --extra dev
 uv run python scripts/generate_icon.py
 uv run decode-mri

@@ -119,7 +119,7 @@ class MainWindow(QMainWindow):
 
     def _build_window(self) -> None:
         self.setWindowTitle("DecodeMRI")
-        icon_path = _asset_path("icons/medreport_icon.png")
+        icon_path = _asset_path("icons/decodemri_icon.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.resize(self._settings.window_size(QSize(1440, 920)))

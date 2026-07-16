@@ -20,15 +20,15 @@ def main() -> int:
 
     root = Path(__file__).resolve().parents[1]
     out_dir = root / "assets" / "icons"
-    source_path = out_dir / "ai_mri_analyzer_source.jpg"
+    source_path = out_dir / "decodemri_source.jpg"
     out_dir.mkdir(parents=True, exist_ok=True)
     if not source_path.exists():
         raise FileNotFoundError(f"Missing icon source artwork: {source_path}")
 
     image = Image.open(source_path).convert("RGBA")
     square = _center_square(image)
-    square.resize((1024, 1024), Image.Resampling.LANCZOS).save(out_dir / "medreport_icon.png")
-    square.resize((256, 256), Image.Resampling.LANCZOS).save(out_dir / "medreport_icon_256.png")
+    square.resize((1024, 1024), Image.Resampling.LANCZOS).save(out_dir / "decodemri_icon.png")
+    square.resize((256, 256), Image.Resampling.LANCZOS).save(out_dir / "decodemri_icon_256.png")
     _save_export_icon(out_dir / "export_jpeg_icon.png", "JPG", (14, 116, 144), (34, 211, 238))
     _save_export_icon(out_dir / "export_pdf_icon.png", "PDF", (153, 27, 27), (248, 113, 113))
     return 0

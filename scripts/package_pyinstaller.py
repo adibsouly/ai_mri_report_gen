@@ -37,7 +37,7 @@ def _set_plist_value(plist_path: Path, key: str, value: str) -> None:
 def main() -> int:
     """Run PyInstaller with a conservative default configuration."""
 
-    icon_path = "assets/icons/medreport_icon.png"
+    icon_path = "assets/icons/decodemri_icon.png"
     version = _project_version()
     command = [
         "pyinstaller",
